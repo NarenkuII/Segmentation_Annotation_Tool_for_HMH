@@ -582,6 +582,7 @@
             </div>
             <div class="button-row">
               <button class="primary" id="scanBtn" disabled>Scanner la video</button>
+              <button id="autoHandBtn" disabled>Auto main</button>
               <button class="warn" id="clearBtn" disabled>Effacer</button>
             </div>
             <p class="note" id="videoInfo">Aucun fichier selectionne.</p>
@@ -790,6 +791,7 @@
     const aboveCount = document.getElementById("aboveCount");
     const activeState = document.getElementById("activeState");
     const scanBtn = document.getElementById("scanBtn");
+    const autoHandBtn = document.getElementById("autoHandBtn");
     const clearBtn = document.getElementById("clearBtn");
     const jsonBtn = document.getElementById("jsonBtn");
     const csvBtn = document.getElementById("csvBtn");
@@ -809,6 +811,7 @@
     let openSegment = null;
     let lastActiveTime = 0;
     let scanning = false;
+    let autoDetecting = false;
     let exportingClips = false;
     let drawing = false;
     let objectUrl = null;
@@ -1195,6 +1198,7 @@
       checkAllBtn.disabled = !hasSegments;
       checkNoneBtn.disabled = !hasSegments;
       clearBtn.disabled = !hasSegments && !video.src;
+      autoHandBtn.disabled = !currentVideoName || autoDetecting;
       addClipBtn.disabled = !video.src || !Number.isFinite(video.duration);
       playLastBtn.disabled = lastPlayedIndex < 0 || !segments[lastPlayedIndex];
       handCount.textContent = segments.length;
@@ -1274,7 +1278,52 @@
         openSegment = null;
         scanning = false;
         scanBtn.disabled = false;
+        autoHandBtn.disabled = !currentVideoName;
         renderSegments();
+      }
+    }
+
+    async function autoConfigureHand() {
+      if (!currentVideoName || autoDetecting) {
+        setModelStatus("Choisis une video serveur", "error");
+        return;
+      }
+      autoDetecting = true;
+      autoHandBtn.disabled = true;
+      scanBtn.disabled = true;
+      setModelStatus("Analyse automatique de la main", "ready");
+      try {
+        const response = await fetch("/api/auto-hand", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            video: currentVideoName,
+            thresholdPercent,
+            minLandmarks: getConfig().minLandmarks,
+            sampleFps: 8
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Auto detection impossible.");
+
+        handLabelMode.value = result.handednessMode || "mediapipe";
+        trackedHand.value = result.scanHand || "Right";
+        targetSide.value = result.scanSide || "any";
+        mirrorVideo.checked = Boolean(result.mirrorVideo);
+        viewer.classList.toggle("mirrored", mirrorVideo.checked);
+        keypointHand.value = result.keypointHand || "Right";
+        keypointSide.value = result.keypointSide || "left";
+
+        const mirrorText = mirrorVideo.checked ? "miroir active" : "sans miroir";
+        setModelStatus(`Auto main : ${result.activeHand} / cote ${result.activeSide}, ${mirrorText}`, "ready");
+        drawOverlay();
+      } catch (error) {
+        console.error(error);
+        setModelStatus(error.message || "Auto detection impossible", "error");
+      } finally {
+        autoDetecting = false;
+        autoHandBtn.disabled = !currentVideoName;
+        scanBtn.disabled = !currentVideoName || !video.src;
       }
     }
 
@@ -1461,6 +1510,7 @@
       renderSegments();
       videoInfo.textContent = infoText;
       scanBtn.disabled = !currentVideoName;
+      autoHandBtn.disabled = !currentVideoName;
       clearBtn.disabled = false;
     }
 
@@ -1814,6 +1864,7 @@
     }
 
     scanBtn.addEventListener("click", scanVideo);
+    autoHandBtn.addEventListener("click", autoConfigureHand);
     extractKeypointsBtn.addEventListener("click", extractKeypoints);
     clipFolder.addEventListener("change", () => {
       if (!keypointOutput.value.trim()) {

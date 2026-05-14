@@ -20,6 +20,7 @@ from extract_clip_keypoints import (
     detect_frame,
     frame_timestamp_ms,
     iter_videos,
+    keypoints_screen_side,
     make_landmarker,
     normalize_handedness,
     safe_stem,
@@ -215,6 +216,137 @@ def split_video_segments(
 
     (output_dir / "annotations.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
+
+
+def analyze_video_hands(
+    video_path: Path,
+    threshold_percent: float,
+    min_landmarks: int,
+    sample_fps: float = 8.0,
+    max_samples: int = 240,
+) -> dict:
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError("OpenCV could not open the video.")
+
+    raw_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = raw_fps if 1.0 <= raw_fps <= 120.0 else 30.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    threshold_y_px = height * threshold_percent / 100.0
+    step_frames = max(1, int(round(fps / max(1.0, sample_fps))))
+    detections_by_frame: list[list[dict]] = []
+
+    try:
+        ensure_hand_model()
+        hands_model = make_landmarker("video")
+        frame_index = 0
+        samples = 0
+        while samples < max_samples:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if frame_index % step_frames != 0:
+                frame_index += 1
+                continue
+
+            result = detect_frame(hands_model, frame, frame_timestamp_ms(frame_index, fps))
+            image_id = len(detections_by_frame) + 1
+            frame_detections = []
+            if result.hand_landmarks:
+                for hand_index, landmarks in enumerate(result.hand_landmarks):
+                    raw_label = ""
+                    score = None
+                    if result.handedness and hand_index < len(result.handedness):
+                        raw_label = result.handedness[hand_index][0].category_name
+                        score = result.handedness[hand_index][0].score
+                    xy_points = [(point.x * width, point.y * height) for point in landmarks]
+                    keypoints = []
+                    for x, y in xy_points:
+                        keypoints.extend([round(x, 3), round(y, 3), 2])
+                    frame_detections.append(
+                        {
+                            "image_id": image_id,
+                            "keypoints": keypoints,
+                            "handedness": raw_label,
+                            "raw_handedness": raw_label,
+                            "score": None if score is None else round(float(score), 6),
+                        }
+                    )
+            detections_by_frame.append(frame_detections)
+            samples += 1
+            frame_index += 1
+    finally:
+        if "hands_model" in locals():
+            hands_model.close()
+        cap.release()
+
+    tracked_annotations, track_switches = assign_hand_tracks(
+        detections_by_frame,
+        width,
+        height,
+        max_missed_frames=max(1, int(round(sample_fps * 0.5))),
+    )
+    tracks: dict[int, list[dict]] = {}
+    for annotation in tracked_annotations:
+        tracks.setdefault(int(annotation.get("track_id") or 0), []).append(annotation)
+
+    candidates = []
+    for track_id, annotations in tracks.items():
+        annotations.sort(key=lambda item: item["image_id"])
+        if len(annotations) < 2:
+            continue
+        movement = 0.0
+        active_frames = 0
+        above_total = 0
+        for before, after in zip(annotations, annotations[1:]):
+            movement += sum(
+                (
+                    (after["keypoints"][index] - before["keypoints"][index]) ** 2
+                    + (after["keypoints"][index + 1] - before["keypoints"][index + 1]) ** 2
+                )
+                ** 0.5
+                for index in range(0, len(before["keypoints"]), 3)
+            ) / 21
+        for annotation in annotations:
+            above = sum(1 for index in range(1, len(annotation["keypoints"]), 3) if annotation["keypoints"][index] < threshold_y_px)
+            above_total += above
+            if above >= min_landmarks:
+                active_frames += 1
+        latest = annotations[-1]
+        label = latest.get("handedness") or "Unknown"
+        side = keypoints_screen_side(latest.get("keypoints", []), width)
+        candidates.append(
+            {
+                "trackId": track_id,
+                "hand": label,
+                "side": side,
+                "movement": round(movement, 3),
+                "activeFrames": active_frames,
+                "aboveTotal": above_total,
+                "frames": len(annotations),
+            }
+        )
+
+    if not candidates:
+        raise ValueError("No hand movement detected.")
+
+    candidates.sort(key=lambda item: (item["activeFrames"], item["aboveTotal"], item["movement"], item["frames"]), reverse=True)
+    active = candidates[0]
+    mirror_video = active["hand"] == "Left"
+    output_side = {"left": "right", "right": "left"}.get(active["side"], "any") if mirror_video else active["side"]
+    return {
+        "activeHand": active["hand"],
+        "activeSide": active["side"],
+        "mirrorVideo": mirror_video,
+        "scanHand": active["hand"] if active["hand"] in {"Right", "Left"} else "Both",
+        "scanSide": output_side if output_side in {"left", "right"} else "any",
+        "keypointHand": "Right" if mirror_video else active["hand"],
+        "keypointSide": output_side if output_side in {"left", "right"} else "any",
+        "handednessMode": "mediapipe",
+        "trackSwitches": track_switches,
+        "candidates": candidates[:4],
+    }
 
 
 def scan_video(
@@ -490,6 +622,23 @@ def scan():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
     return app.response_class(json.dumps(result), mimetype="application/json")
+
+
+@app.post("/api/auto-hand")
+def auto_hand():
+    data = request.get_json(force=True)
+    try:
+        video_path = resolve_video(data.get("video", ""))
+        sample_fps = clamp(float(data.get("sampleFps", 8)), 3, 15)
+        result = analyze_video_hands(
+            video_path,
+            threshold_percent=clamp(float(data.get("thresholdPercent", 62)), 5, 95),
+            min_landmarks=max(1, int(data.get("minLandmarks", 3))),
+            sample_fps=sample_fps,
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
 
 
 @app.post("/api/extract-keypoints")

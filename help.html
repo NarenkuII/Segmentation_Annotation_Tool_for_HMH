@@ -108,9 +108,9 @@
       <h2>Workflow recommande</h2>
       <ol>
         <li>Dans <code>Source</code>, choisis une video. Elle est uploadee dans <code>workspace/uploads/</code> sur le serveur.</li>
+        <li>Clique sur <code>Auto main</code>. L'outil detecte la main qui bouge le plus et regle les filtres.</li>
+        <li>Si la main dominante est gauche, l'outil active le miroir pour normaliser les clips vers une main droite.</li>
         <li>Verifie l'overlay des mains. La main utilisee est coloree, les autres sont grisees.</li>
-        <li>Regle <code>Labels des mains</code>. Si la main droite du signeur apparait comme gauche, choisis <code>Inverser Left/Right</code>.</li>
-        <li>Garde en general <code>Main detectee: Droite seulement</code> et <code>Cote a garder: Cote gauche</code>.</li>
         <li>Clique sur <code>Scanner la video</code>.</li>
         <li>Corrige les segments si besoin, puis clique sur <code>Exporter les clips</code>.</li>
         <li>Clique sur <code>Extraire JSON COCO</code>, puis telecharge le ZIP des JSON.</li>
@@ -125,7 +125,8 @@
         ecran <code>left</code> ou <code>right</code>.
       </p>
       <p>
-        Pour un dataset normalise sur la main droite du signeur visible a gauche de l'ecran, utilise :
+        Le bouton <code>Auto main</code> analyse quelques frames et choisit la main avec le plus de mouvement. Pour un dataset
+        normalise sur la main droite du signeur visible a gauche de l'ecran, le reglage manuel de reference reste :
         <code>Droite seulement</code> + <code>Cote gauche</code>. Pour les JSON : <code>Main: Right</code> + <code>Cote: Gauche</code>.
       </p>
     </section>
