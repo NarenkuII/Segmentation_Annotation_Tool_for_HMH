@@ -1335,57 +1335,39 @@
     }
 
     async function exportSplitVideos() {
-      const checkedSegments = segments
-        .map((segment, index) => ({ segment, index }))
-        .filter((item) => item.segment.checked !== false);
-      if (!checkedSegments.length || !video.src || exportingClips) return;
-      if (!window.JSZip) {
-        setModelStatus("Zip library failed", "error");
-        return;
-      }
+      const checkedSegments = segmentExportRows();
+      if (!checkedSegments.length || !currentVideoName || exportingClips) return;
 
       exportingClips = true;
       clipsBtn.disabled = true;
       scanBtn.disabled = true;
-      const shouldMirrorExport = mirrorVideo.checked;
-      const originalTime = video.currentTime;
-      const wasPaused = video.paused;
-      video.pause();
+      setModelStatus("Exporting clips on server", "ready");
 
       try {
-        const zip = new window.JSZip();
-        const manifest = [];
-        for (let exportIndex = 0; exportIndex < checkedSegments.length; exportIndex += 1) {
-          const { segment, index } = checkedSegments[exportIndex];
-          setModelStatus(`Exporting ${exportIndex + 1}/${checkedSegments.length}${shouldMirrorExport ? " mirrored" : ""}`, "ready");
-          const blob = await recordSegment(segment, shouldMirrorExport);
-          const filename = filenameForSegment(segment, index);
-          zip.file(filename, blob);
-          manifest.push({
-            label: segment.label || defaultLabel(index),
-            filename,
-            start: Number(segment.start.toFixed(3)),
-            end: Number(segment.end.toFixed(3)),
-            startFrame: secondsToFrame(segment.start),
-            endFrame: secondsToFrame(segment.end),
-            editFps: editFps(),
-            mirrored: shouldMirrorExport,
-            duration: Number((segment.end - segment.start).toFixed(3))
-          });
-        }
-        zip.file("annotations.json", JSON.stringify(manifest, null, 2));
-        const zipBlob = await zip.generateAsync({ type: "blob" });
-        download(`${sanitizeName(baseName.value) || "LSF_"}clips.zip`, "application/zip", zipBlob);
-        setModelStatus("Python backend ready", "ready");
+        const response = await fetch("/api/export-clips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            video: currentVideoName,
+            baseName: baseName.value,
+            mirrorVideo: mirrorVideo.checked,
+            segments: checkedSegments
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Clip export failed.");
+        await refreshBackendLists(result.clipFolder);
+        clipFolder.value = result.clipFolder;
+        keypointOutput.value = `workspace/keypoints/${sanitizeName(result.clipFolder.split("/").pop())}_coco_keypoints`;
+        keypointStatus.innerHTML = `${result.clips} server clip(s) ready for JSON extraction. <a href="/api/download-folder?folder=${escapeHtml(encodeURIComponent(result.clipFolder))}">Download clips zip</a>`;
+        setModelStatus(`Server clips ready: ${result.clips}`, "ready");
       } catch (error) {
         console.error(error);
-        setModelStatus("Clip export failed", "error");
+        setModelStatus(error.message || "Clip export failed", "error");
       } finally {
         exportingClips = false;
         scanBtn.disabled = !currentVideoName || !video.src;
         clipsBtn.disabled = !segments.some((segment) => segment.checked !== false);
-        video.currentTime = Math.min(originalTime, video.duration || originalTime);
-        if (!wasPaused) video.play();
       }
     }
 
@@ -1478,6 +1460,34 @@
       resetLoadedVideo(src);
     }
 
+    async function uploadVideoFile(file) {
+      if (!file) return;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+      }
+      currentVideoName = "";
+      scanBtn.disabled = true;
+      videoInfo.textContent = `${file.name} uploading...`;
+      setModelStatus("Uploading video to server", "ready");
+
+      const formData = new FormData();
+      formData.append("video", file);
+      const response = await fetch("/api/upload-video", {
+        method: "POST",
+        body: formData
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Upload failed.");
+
+      currentVideoName = result.video;
+      video.src = result.video;
+      if (result.defaultBaseName) baseName.value = result.defaultBaseName;
+      resetLoadedVideo(`${result.name} uploaded`);
+      setModelStatus("Video uploaded on server", "ready");
+      await refreshBackendLists();
+    }
+
     async function extractKeypoints() {
       if (!clipFolder.value) return;
       extractKeypointsBtn.disabled = true;
@@ -1500,7 +1510,8 @@
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Extraction failed.");
-        keypointStatus.textContent = `${result.videos} clips -> ${result.outputDir}, ${result.annotations} annotations, ${result.interpolated} interpolated, ${result.smoothed} smoothed, ${result.trackSwitches} track switches.`;
+        const downloadLink = result.downloadUrl ? ` <a href="${escapeHtml(result.downloadUrl)}">Download JSON zip</a>` : "";
+        keypointStatus.innerHTML = `${result.videos} clips -> ${escapeHtml(result.outputDir)}, ${result.annotations} annotations, ${result.interpolated} interpolated, ${result.smoothed} smoothed, ${result.trackSwitches} track switches.${downloadLink}`;
         setModelStatus("COCO JSON export done", "ready");
       } catch (error) {
         keypointStatus.textContent = error.message || "Extraction failed.";
@@ -1510,35 +1521,44 @@
       }
     }
 
+    async function refreshBackendLists(preferredClipFolder = "") {
+      const [videoResponse, folderResponse] = await Promise.all([
+        fetch("/api/videos"),
+        fetch("/api/clip-dirs")
+      ]);
+      if (!videoResponse.ok || !folderResponse.ok) throw new Error("Backend unavailable");
+      const data = await videoResponse.json();
+      const folders = await folderResponse.json();
+      if (Array.isArray(data.videos) && data.videos.length) {
+        workspaceVideoNames = [...data.videos];
+        workspaceVideos.innerHTML = data.videos.map((name) => (
+          `<button class="workspace-video" data-src="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+        )).join("");
+      } else {
+        workspaceVideoNames = [];
+        workspaceVideos.innerHTML = "";
+      }
+      if (Array.isArray(folders.folders) && folders.folders.length) {
+        clipFolder.innerHTML = folders.folders.map((name) => (
+          `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`
+        )).join("");
+        if (preferredClipFolder && folders.folders.includes(preferredClipFolder)) {
+          clipFolder.value = preferredClipFolder;
+        } else if (folders.folders.includes("Louna_prise1_clips")) {
+          clipFolder.value = "Louna_prise1_clips";
+        }
+        extractKeypointsBtn.disabled = false;
+        keypointStatus.textContent = `${folders.folders.length} clip folder(s) found.`;
+      } else {
+        clipFolder.innerHTML = "";
+        extractKeypointsBtn.disabled = true;
+        keypointStatus.textContent = "No clip folder found.";
+      }
+    }
+
     async function initBackend() {
       try {
-        const [videoResponse, folderResponse] = await Promise.all([
-          fetch("/api/videos"),
-          fetch("/api/clip-dirs")
-        ]);
-        if (!videoResponse.ok || !folderResponse.ok) throw new Error("Backend unavailable");
-        const data = await videoResponse.json();
-        const folders = await folderResponse.json();
-        if (Array.isArray(data.videos) && data.videos.length) {
-          workspaceVideoNames = [...data.videos];
-          workspaceVideos.innerHTML = data.videos.map((name) => (
-            `<button class="workspace-video" data-src="${escapeHtml(name)}">${escapeHtml(name)}</button>`
-          )).join("");
-        } else {
-          workspaceVideoNames = [];
-        }
-        if (Array.isArray(folders.folders) && folders.folders.length) {
-          clipFolder.innerHTML = folders.folders.map((name) => (
-            `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`
-          )).join("");
-          if (folders.folders.includes("Louna_prise1_clips")) clipFolder.value = "Louna_prise1_clips";
-          extractKeypointsBtn.disabled = false;
-          keypointStatus.textContent = `${folders.folders.length} clip folder(s) found.`;
-        } else {
-          clipFolder.innerHTML = "";
-          extractKeypointsBtn.disabled = true;
-          keypointStatus.textContent = "No clip folder found.";
-        }
+        await refreshBackendLists();
         setModelStatus("Python backend ready", "ready");
       } catch (error) {
         setModelStatus("Start app.py server", "error");
@@ -1556,18 +1576,17 @@
       requestAnimationFrame(loop);
     }
 
-    videoFile.addEventListener("change", () => {
+    videoFile.addEventListener("change", async () => {
       const file = videoFile.files && videoFile.files[0];
       if (!file) return;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      objectUrl = URL.createObjectURL(file);
-      video.src = objectUrl;
-      currentVideoName = workspaceVideoNames.includes(file.name) ? file.name : "";
-      resetLoadedVideo(`${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
-      if (currentVideoName) {
-        setModelStatus(`Workspace match found: ${currentVideoName}`, "ready");
-      } else {
-        setModelStatus("Use workspace video for Python scan", "error");
+      try {
+        await uploadVideoFile(file);
+      } catch (error) {
+        console.error(error);
+        setModelStatus(error.message || "Upload failed", "error");
+        videoInfo.textContent = "Upload failed.";
+      } finally {
+        videoFile.value = "";
       }
     });
 
@@ -1783,7 +1802,9 @@
     scanBtn.addEventListener("click", scanVideo);
     extractKeypointsBtn.addEventListener("click", extractKeypoints);
     clipFolder.addEventListener("change", () => {
-      if (!keypointOutput.value.trim()) keypointOutput.value = `${clipFolder.value}_coco_keypoints`;
+      if (!keypointOutput.value.trim()) {
+        keypointOutput.value = `workspace/keypoints/${sanitizeName(clipFolder.value.split("/").pop())}_coco_keypoints`;
+      }
     });
     editFrameFpsInput.addEventListener("change", renderSegments);
     addClipBtn.addEventListener("click", addManualClip);

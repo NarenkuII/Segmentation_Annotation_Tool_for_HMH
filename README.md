@@ -17,11 +17,13 @@ Sur Windows, tu peux aussi lancer `run_tool.bat`.
 
 ## Workflow
 
-1. Place une video dans le dossier du projet.
-2. Ouvre l'app, choisis la video, puis lance le scan.
+1. Ouvre l'app, choisis une video, puis attends l'upload serveur.
+2. Lance le scan.
 3. Corrige les segments si besoin.
-4. Exporte les clips.
-5. Choisis le dossier de clips et lance `Extract COCO JSON`.
+4. Exporte les clips. Les clips sont crees sur le PC qui lance Flask, dans `workspace/clips/`.
+5. Lance `Extract COCO JSON`. Les JSON sont crees dans `workspace/keypoints/` et un lien ZIP est affiche.
+
+Les videos uploadees, clips generes et JSON generes restent dans `workspace/`, qui est ignore par Git.
 
 ## Tracking des mains
 
@@ -44,3 +46,7 @@ Pour inverser les labels gauche/droite :
 ```powershell
 python extract_clip_keypoints.py .\mon_dossier_clips --hand Both --handedness-mode swap
 ```
+
+## Mise en ligne
+
+Le serveur Flask garde le calcul sur la machine qui lance `app.py`. Pour exposer l'outil a un ami, mets Flask derriere nginx avec une authentification HTTP basic et laisse Flask ecouter en local sur `127.0.0.1:8000`.

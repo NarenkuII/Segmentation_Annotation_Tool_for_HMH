@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from io import BytesIO
 import json
 import urllib.request
+import uuid
+import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 import cv2
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from extract_clip_keypoints import (
     assign_hand_tracks,
@@ -25,8 +29,13 @@ ROOT = Path(__file__).resolve().parent
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
 HAND_MODEL = ROOT / "hand_landmarker.task"
 HAND_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+WORKSPACE_ROOT = ROOT / "workspace"
+UPLOAD_ROOT = WORKSPACE_ROOT / "uploads"
+CLIP_ROOT = WORKSPACE_ROOT / "clips"
+KEYPOINT_ROOT = WORKSPACE_ROOT / "keypoints"
 
 app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
+app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024
 
 
 def ensure_hand_model() -> Path:
@@ -43,10 +52,24 @@ def default_label(index: int) -> str:
     return f"Sign_{index + 1:02d}"
 
 
-def resolve_video(name: str) -> Path:
-    path = (ROOT / name).resolve()
+def ensure_workspace_dirs() -> None:
+    for path in (UPLOAD_ROOT, CLIP_ROOT, KEYPOINT_ROOT):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def relative_to_root(path: Path) -> str:
+    return path.resolve().relative_to(ROOT).as_posix()
+
+
+def resolve_inside_root(name: str, kind: str) -> Path:
+    path = (ROOT / str(name)).resolve()
     if ROOT not in path.parents and path != ROOT:
-        raise ValueError("Video must be inside the workspace.")
+        raise ValueError(f"{kind} must be inside the workspace.")
+    return path
+
+
+def resolve_video(name: str) -> Path:
+    path = resolve_inside_root(name, "Video")
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         raise ValueError("Unsupported video extension.")
     if not path.exists():
@@ -55,12 +78,45 @@ def resolve_video(name: str) -> Path:
 
 
 def resolve_workspace_dir(name: str) -> Path:
-    path = (ROOT / name).resolve()
-    if ROOT not in path.parents and path != ROOT:
-        raise ValueError("Folder must be inside the workspace.")
+    path = resolve_inside_root(name, "Folder")
     if not path.exists() or not path.is_dir():
         raise ValueError("Folder not found.")
     return path
+
+
+def unique_child(parent: Path, name: str) -> Path:
+    candidate = parent / name
+    if not candidate.exists():
+        return candidate
+    suffix = uuid.uuid4().hex[:8]
+    return parent / f"{Path(name).stem}_{suffix}{Path(name).suffix}"
+
+
+def iter_workspace_videos() -> list[Path]:
+    root_videos = [
+        path for path in ROOT.iterdir() if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    ]
+    upload_videos = (
+        path for path in UPLOAD_ROOT.rglob("*") if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    )
+    return sorted([*root_videos, *upload_videos], key=lambda path: relative_to_root(path).lower())
+
+
+def iter_clip_dirs() -> list[Path]:
+    top_level = [
+        path
+        for path in ROOT.iterdir()
+        if path.is_dir()
+        and not path.name.startswith("__")
+        and path not in {WORKSPACE_ROOT}
+        and any(child.is_file() and child.suffix.lower() in VIDEO_EXTENSIONS for child in path.iterdir())
+    ]
+    generated = [
+        path
+        for path in CLIP_ROOT.rglob("*")
+        if path.is_dir() and any(child.is_file() and child.suffix.lower() in VIDEO_EXTENSIONS for child in path.iterdir())
+    ]
+    return sorted([*top_level, *generated], key=lambda path: relative_to_root(path).lower())
 
 
 def make_segment(index: int, start: float, end: float, duration: float, padding_before: float, padding_after: float) -> dict:
@@ -71,6 +127,93 @@ def make_segment(index: int, start: float, end: float, duration: float, padding_
         "start": round(clamp(start - padding_before, 0, duration), 3),
         "end": round(clamp(end + padding_after, 0, duration), 3),
     }
+
+
+def split_video_segments(
+    video_path: Path,
+    segments: list[dict],
+    output_dir: Path,
+    base_name: str,
+    mirror_video: bool,
+) -> list[dict]:
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError("OpenCV could not open the video.")
+
+    raw_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = raw_fps if 1.0 <= raw_fps <= 120.0 else 30.0
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    duration = frame_count / fps if frame_count > 0 else float("inf")
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    if width <= 0 or height <= 0:
+        cap.release()
+        raise ValueError("Video dimensions could not be read.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest = []
+    prefix = safe_stem(base_name) or "LSF_"
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+    try:
+        for index, segment in enumerate(segments):
+            if segment.get("checked") is False:
+                continue
+            start = max(0.0, float(segment.get("start", 0.0)))
+            end = max(start, float(segment.get("end", start)))
+            if duration != float("inf"):
+                end = min(end, duration)
+            if end <= start:
+                continue
+
+            label = safe_stem(str(segment.get("label") or default_label(index)))
+            filename = f"{prefix}{label}.mp4"
+            output_path = unique_child(output_dir, filename)
+            writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+            if not writer.isOpened():
+                raise ValueError("OpenCV could not create clip video.")
+
+            start_frame = max(0, int(round(start * fps)))
+            end_frame = max(start_frame + 1, int(round(end * fps)))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            frame_index = start_frame
+            written = 0
+            while frame_index < end_frame:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                if mirror_video:
+                    frame = cv2.flip(frame, 1)
+                writer.write(frame)
+                written += 1
+                frame_index += 1
+            writer.release()
+
+            if written == 0:
+                output_path.unlink(missing_ok=True)
+                continue
+
+            manifest.append(
+                {
+                    "label": segment.get("label") or default_label(index),
+                    "filename": output_path.name,
+                    "start": round(start, 3),
+                    "end": round(end, 3),
+                    "duration": round(end - start, 3),
+                    "startFrame": start_frame,
+                    "endFrame": end_frame,
+                    "fps": fps,
+                    "mirrored": mirror_video,
+                }
+            )
+    finally:
+        cap.release()
+
+    if not manifest:
+        raise ValueError("No clips were exported.")
+
+    (output_dir / "annotations.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
 
 
 def scan_video(
@@ -215,29 +358,104 @@ def scan_video(
 
 @app.get("/")
 def index():
+    ensure_workspace_dirs()
     return send_from_directory(ROOT, "index.html")
 
 
 @app.get("/api/videos")
 def videos():
-    files = sorted(
-        path.name
-        for path in ROOT.iterdir()
-        if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
-    )
-    return jsonify({"videos": files})
+    ensure_workspace_dirs()
+    return jsonify({"videos": [relative_to_root(path) for path in iter_workspace_videos()]})
 
 
 @app.get("/api/clip-dirs")
 def clip_dirs():
-    folders = []
-    for path in sorted(ROOT.iterdir()):
-        if not path.is_dir() or path.name.startswith("__"):
-            continue
-        has_video = any(child.is_file() and child.suffix.lower() in VIDEO_EXTENSIONS for child in path.iterdir())
-        if has_video:
-            folders.append(path.name)
-    return jsonify({"folders": folders})
+    ensure_workspace_dirs()
+    return jsonify({"folders": [relative_to_root(path) for path in iter_clip_dirs()]})
+
+
+@app.post("/api/upload-video")
+def upload_video():
+    ensure_workspace_dirs()
+    try:
+        uploaded = request.files.get("video")
+        if not uploaded or not uploaded.filename:
+            raise ValueError("No video file received.")
+        source_name = Path(uploaded.filename)
+        extension = source_name.suffix.lower()
+        if extension not in VIDEO_EXTENSIONS:
+            raise ValueError("Unsupported video extension.")
+
+        upload_id = uuid.uuid4().hex[:12]
+        output_dir = UPLOAD_ROOT / upload_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{safe_stem(source_name.stem)}{extension}"
+        output_path = unique_child(output_dir, filename)
+        uploaded.save(output_path)
+
+        return jsonify(
+            {
+                "video": relative_to_root(output_path),
+                "uploadId": upload_id,
+                "name": output_path.name,
+                "defaultBaseName": f"{safe_stem(source_name.stem)}_",
+            }
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.post("/api/export-clips")
+def export_clips():
+    ensure_workspace_dirs()
+    data = request.get_json(force=True)
+    try:
+        video_path = resolve_video(data.get("video", ""))
+        segments = data.get("segments")
+        if not isinstance(segments, list):
+            raise ValueError("Segments must be a list.")
+        base_name = data.get("baseName") or f"{safe_stem(video_path.stem)}_"
+        output_name = safe_stem(data.get("outputName") or f"{safe_stem(video_path.stem)}_clips_{uuid.uuid4().hex[:8]}")
+        output_dir = unique_child(CLIP_ROOT, output_name)
+        manifest = split_video_segments(
+            video_path=video_path,
+            segments=segments,
+            output_dir=output_dir,
+            base_name=base_name,
+            mirror_video=bool(data.get("mirrorVideo", False)),
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(
+        {
+            "clipFolder": relative_to_root(output_dir),
+            "clips": len(manifest),
+            "manifest": relative_to_root(output_dir / "annotations.json"),
+        }
+    )
+
+
+@app.get("/api/download-folder")
+def download_folder():
+    try:
+        folder = resolve_workspace_dir(request.args.get("folder", ""))
+        if WORKSPACE_ROOT not in folder.parents and folder != WORKSPACE_ROOT:
+            raise ValueError("Only managed workspace folders can be downloaded.")
+        archive = BytesIO()
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for path in sorted(folder.rglob("*")):
+                if path.is_file():
+                    zip_file.write(path, path.relative_to(folder.parent))
+        archive.seek(0)
+        return send_file(
+            archive,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"{folder.name}.zip",
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @app.post("/api/scan")
@@ -278,8 +496,12 @@ def extract_keypoints():
     data = request.get_json(force=True)
     try:
         input_dir = resolve_workspace_dir(data.get("inputDir", ""))
-        output_name = data.get("outputDir") or f"{input_dir.name}_coco_keypoints"
-        output_dir = (ROOT / output_name).resolve()
+        output_name = data.get("outputDir")
+        output_dir = (
+            (ROOT / output_name).resolve()
+            if output_name
+            else (KEYPOINT_ROOT / f"{input_dir.name}_coco_keypoints").resolve()
+        )
         if ROOT not in output_dir.parents and output_dir != ROOT:
             raise ValueError("Output folder must stay inside the workspace.")
 
@@ -334,7 +556,8 @@ def extract_keypoints():
 
     return jsonify(
         {
-            "outputDir": output_dir.name,
+            "outputDir": relative_to_root(output_dir),
+            "downloadUrl": f"/api/download-folder?folder={quote(relative_to_root(output_dir), safe='')}",
             "videos": len(summaries),
             "annotations": sum(item["annotations"] for item in summaries),
             "interpolated": sum(item["interpolated"] for item in summaries),
