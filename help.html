@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aide - Outil HMH de segmentation LSF</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #617083;
+      --line: #d6dde6;
+      --panel: #ffffff;
+      --soft: #f4f6f8;
+      --accent: #0f766e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #eef2f5;
+      line-height: 1.55;
+    }
+
+    header {
+      padding: 18px 22px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    a {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    p {
+      margin: 8px 0;
+    }
+
+    ol,
+    ul {
+      margin: 8px 0 0;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Aide - Outil HMH de segmentation LSF</h1>
+    <a href="/">Retour a l'outil</a>
+  </header>
+
+  <main>
+    <section>
+      <h2>But de l'outil</h2>
+      <p>
+        Cet outil sert a envoyer une grande video de langue des signes sur le PC serveur, detecter les moments ou la main travaille,
+        couper la video en un clip par signe, puis produire un fichier JSON COCO-style par clip avec les keypoints MediaPipe.
+      </p>
+      <p>Tout le calcul se fait sur le PC qui lance le serveur Python, pas sur l'ordinateur de la personne connectee.</p>
+    </section>
+
+    <section>
+      <h2>Workflow recommande</h2>
+      <ol>
+        <li>Dans <code>Source</code>, choisis une video. Elle est uploadee dans <code>workspace/uploads/</code> sur le serveur.</li>
+        <li>Verifie l'overlay des mains. La main utilisee est coloree, les autres sont grisees.</li>
+        <li>Regle <code>Labels des mains</code>. Si la main droite du signeur apparait comme gauche, choisis <code>Inverser Left/Right</code>.</li>
+        <li>Garde en general <code>Main detectee: Droite seulement</code> et <code>Cote a garder: Cote gauche</code>.</li>
+        <li>Clique sur <code>Scanner la video</code>.</li>
+        <li>Corrige les segments si besoin, puis clique sur <code>Exporter les clips</code>.</li>
+        <li>Clique sur <code>Extraire JSON COCO</code>, puis telecharge le ZIP des JSON.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Comprendre les reglages main droite/gauche</h2>
+      <p>
+        MediaPipe renvoie les labels <code>Right</code> et <code>Left</code>. Selon la camera et l'effet miroir, le label peut ne pas
+        correspondre a ce que tu vois a l'ecran. L'overlay affiche donc le label corrige, le label brut si different, et le cote
+        ecran <code>left</code> ou <code>right</code>.
+      </p>
+      <p>
+        Pour un dataset normalise sur la main droite du signeur visible a gauche de l'ecran, utilise :
+        <code>Droite seulement</code> + <code>Cote gauche</code>. Pour les JSON : <code>Main: Right</code> + <code>Cote: Gauche</code>.
+      </p>
+    </section>
+
+    <section>
+      <h2>Dossiers serveur</h2>
+      <ul>
+        <li><code>workspace/uploads/</code> : videos envoyees par les utilisateurs.</li>
+        <li><code>workspace/clips/</code> : clips coupes par le serveur.</li>
+        <li><code>workspace/keypoints/</code> : JSON COCO-style generes par MediaPipe.</li>
+      </ul>
+      <p>Ces dossiers ne sont pas envoyes sur GitHub.</p>
+    </section>
+
+    <section>
+      <h2>Si le scan rate des signes</h2>
+      <ul>
+        <li>Monte un peu <code>Marge avant</code> et <code>Marge apres</code> si les clips sont trop courts.</li>
+        <li>Descends <code>Points minimum au-dessus</code> si la main est souvent partiellement detectee.</li>
+        <li>Augmente <code>Pause pour fermer le signe</code> si un meme signe est coupe en plusieurs clips.</li>
+        <li>Verifie d'abord <code>Labels des mains</code> et <code>Cote a garder</code> avec l'overlay.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

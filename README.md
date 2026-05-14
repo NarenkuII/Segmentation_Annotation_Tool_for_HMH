@@ -13,6 +13,12 @@ python app.py
 
 Ouvre ensuite `http://127.0.0.1:8000`.
 
+Sur le reseau configure avec nginx, l'adresse publique est :
+
+```text
+http://hmh-segmentation.duckdns.org
+```
+
 Sur Windows, tu peux aussi lancer `run_tool.bat`.
 
 ## Workflow
@@ -50,3 +56,11 @@ python extract_clip_keypoints.py .\mon_dossier_clips --hand Both --handedness-mo
 ## Mise en ligne
 
 Le serveur Flask garde le calcul sur la machine qui lance `app.py`. Pour exposer l'outil a un ami, mets Flask derriere nginx avec une authentification HTTP basic et laisse Flask ecouter en local sur `127.0.0.1:8000`.
+
+Dans la configuration actuelle, nginx tourne sur `192.168.1.16` et proxifie vers le serveur Flask sur `192.168.1.37:8000`. L'authentification HTTP basic est active sur `hmh-segmentation.duckdns.org`.
+
+Le certificat HTTPS Let's Encrypt doit etre relance quand DuckDNS repond correctement aux requetes CAA :
+
+```bash
+sudo certbot certonly --webroot -w /var/www/html -d hmh-segmentation.duckdns.org
+```

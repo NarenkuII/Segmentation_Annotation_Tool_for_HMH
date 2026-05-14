@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 import json
+import os
 import urllib.request
 import uuid
 import zipfile
@@ -49,7 +50,7 @@ def clamp(value: float, low: float, high: float) -> float:
 
 
 def default_label(index: int) -> str:
-    return f"Sign_{index + 1:02d}"
+    return f"Signe_{index + 1:02d}"
 
 
 def ensure_workspace_dirs() -> None:
@@ -568,4 +569,8 @@ def extract_keypoints():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=False)
+    app.run(
+        host=os.environ.get("HMH_HOST", "0.0.0.0"),
+        port=int(os.environ.get("HMH_PORT", "8000")),
+        debug=False,
+    )

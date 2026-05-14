@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LSF Sign Segmenter</title>
+  <title>Outil HMH de segmentation LSF</title>
   <style>
     :root {
       color-scheme: light;
@@ -74,6 +74,19 @@
       justify-content: flex-end;
       color: var(--muted);
       font-size: 13px;
+    }
+
+    .help-link {
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      color: var(--accent);
+      background: #fff;
+      text-decoration: none;
+      font-weight: 700;
     }
 
     .dot {
@@ -514,32 +527,33 @@
 <body>
   <div class="app">
     <header>
-      <h1>LSF Sign Segmenter</h1>
+      <h1>Outil HMH de segmentation LSF</h1>
       <div class="status-strip">
+        <a class="help-link" href="/help.html" target="_blank" rel="noopener">Aide</a>
         <span id="modelDot" class="dot"></span>
-        <span id="modelStatus">Python backend ready</span>
+        <span id="modelStatus">Serveur Python pret</span>
       </div>
     </header>
 
     <main>
-      <section class="stage" aria-label="Video analysis">
+      <section class="stage" aria-label="Analyse video">
         <div class="viewer" id="viewer">
           <video id="video" controls playsinline></video>
           <canvas id="overlay"></canvas>
           <div class="empty-state" id="emptyState">
             <div>
-              <strong>Import a video</strong>
-              <span>Hands below the line are rest. Hands above the line are signs.</span>
+              <strong>Importer une video</strong>
+              <span>Une main sous la ligne est au repos. Une main au-dessus declenche un signe.</span>
             </div>
           </div>
         </div>
-        <div class="timeline" aria-label="Detected sign segments">
+        <div class="timeline" aria-label="Segments detectes">
           <div class="timeline-track" id="timelineTrack"></div>
           <div class="playhead" id="playhead"></div>
         </div>
         <div class="timeline-actions">
-          <button id="addClipBtn" disabled>Add clip at playhead</button>
-          <button id="playLastBtn" disabled>Replay last</button>
+          <button id="addClipBtn" disabled>Ajouter un clip ici</button>
+          <button id="playLastBtn" disabled>Rejouer le dernier</button>
         </div>
       </section>
 
@@ -548,92 +562,92 @@
           <h2>Source</h2>
           <div class="panel-body">
             <div class="field">
-              <label for="videoFile">Video file</label>
+              <label for="videoFile">Fichier video</label>
               <input id="videoFile" type="file" accept="video/*">
             </div>
             <div class="field">
-              <label for="segmentsFile">Import clip JSON</label>
+              <label for="segmentsFile">Importer segments JSON</label>
               <input id="segmentsFile" type="file" accept="application/json,.json">
             </div>
             <div class="field">
-              <label>Workspace videos</label>
+              <label>Videos serveur</label>
               <div class="stack" id="workspaceVideos">
                 <button class="workspace-video" data-src="usb_cam_browser.mp4">usb_cam_browser.mp4</button>
                 <button class="workspace-video" data-src="laptop_cam_browser.mp4">laptop_cam_browser.mp4</button>
               </div>
             </div>
             <div class="field">
-              <label for="baseName">Generic file name</label>
+              <label for="baseName">Prefixe des fichiers</label>
               <input id="baseName" type="text" value="Francois_prise1_" spellcheck="false">
             </div>
             <div class="button-row">
-              <button class="primary" id="scanBtn" disabled>Scan video</button>
-              <button class="warn" id="clearBtn" disabled>Clear marks</button>
+              <button class="primary" id="scanBtn" disabled>Scanner la video</button>
+              <button class="warn" id="clearBtn" disabled>Effacer</button>
             </div>
-            <p class="note" id="videoInfo">No file selected.</p>
+            <p class="note" id="videoInfo">Aucun fichier selectionne.</p>
           </div>
         </section>
 
         <section class="panel">
-          <h2>Threshold</h2>
+          <h2>Detection</h2>
           <div class="panel-body">
             <div class="field">
-              <label for="thresholdRange">Line position</label>
+              <label for="thresholdRange">Position de la ligne</label>
               <input id="thresholdRange" type="range" min="5" max="95" value="62">
             </div>
             <label class="check-row" for="mirrorVideo">
               <input id="mirrorVideo" type="checkbox">
-              Mirror video horizontally
+              Miroir horizontal
             </label>
             <div class="field">
-              <label for="handLabelMode">Hand labels</label>
+              <label for="handLabelMode">Labels des mains</label>
               <select id="handLabelMode">
                 <option value="mediapipe" selected>MediaPipe</option>
-                <option value="swap">Swap Left/Right</option>
+                <option value="swap">Inverser Left/Right</option>
               </select>
             </div>
             <div class="field">
-              <label for="trackedHand">Tracked hand</label>
+              <label for="trackedHand">Main detectee</label>
               <select id="trackedHand">
-                <option value="Right" selected>Right only</option>
-                <option value="Left">Left only</option>
-                <option value="Both">Both hands</option>
+                <option value="Right" selected>Droite seulement</option>
+                <option value="Left">Gauche seulement</option>
+                <option value="Both">Deux mains</option>
               </select>
             </div>
             <div class="field">
-              <label for="targetSide">Target side</label>
+              <label for="targetSide">Cote a garder</label>
               <select id="targetSide">
-                <option value="left" selected>Left side</option>
-                <option value="right">Right side</option>
-                <option value="any">Any side</option>
+                <option value="left" selected>Cote gauche</option>
+                <option value="right">Cote droit</option>
+                <option value="any">Tous les cotes</option>
               </select>
             </div>
             <div class="field">
-              <label for="minLandmarks">Minimum landmarks above line</label>
+              <label for="minLandmarks">Points minimum au-dessus</label>
               <input id="minLandmarks" type="number" min="1" max="42" value="3">
             </div>
             <div class="field">
-              <label for="minDuration">Minimum sign duration, seconds</label>
+              <label for="minDuration">Duree minimum du signe, secondes</label>
               <input id="minDuration" type="number" min="0.05" max="5" step="0.05" value="0.20">
             </div>
             <div class="field">
-              <label for="restGap">Rest gap to close sign, seconds</label>
+              <label for="restGap">Pause pour fermer le signe, secondes</label>
               <input id="restGap" type="number" min="0.05" max="3" step="0.05" value="0.35">
             </div>
             <div class="field">
-              <label for="clipPaddingBefore">Clip padding before sign, seconds</label>
+              <label for="clipPaddingBefore">Marge avant, secondes</label>
               <input id="clipPaddingBefore" type="number" min="0" max="3" step="0.05" value="0.40">
             </div>
             <div class="field">
-              <label for="clipPaddingAfter">Clip padding after sign, seconds</label>
+              <label for="clipPaddingAfter">Marge apres, secondes</label>
               <input id="clipPaddingAfter" type="number" min="0" max="3" step="0.05" value="0.60">
             </div>
             <div class="field">
-              <label for="sampleFps">Python scan FPS</label>
+              <label for="sampleFps">FPS du scan Python</label>
               <input id="sampleFps" type="number" min="3" max="30" step="1" value="20">
             </div>
             <div class="field">
-              <label for="editFrameFps">Manual edit FPS</label>
+              <label for="editFrameFps">FPS edition manuelle</label>
               <input id="editFrameFps" type="number" min="1" max="120" step="1" value="30">
             </div>
           </div>
@@ -643,52 +657,52 @@
           <h2>Keypoints</h2>
           <div class="panel-body">
             <div class="field">
-              <label for="clipFolder">Clip folder</label>
+              <label for="clipFolder">Dossier des clips</label>
               <select id="clipFolder"></select>
             </div>
             <div class="field">
-              <label for="keypointOutput">Output folder</label>
+              <label for="keypointOutput">Dossier de sortie</label>
               <input id="keypointOutput" type="text" value="Louna_prise1_clips_coco_keypoints" spellcheck="false">
             </div>
             <div class="button-row">
               <div class="field">
-                <label for="keypointSampleFps">Sample FPS</label>
+                <label for="keypointSampleFps">FPS d'extraction</label>
                 <input id="keypointSampleFps" type="number" min="0" max="120" step="1" value="10">
               </div>
               <div class="field">
-                <label for="keypointHand">Hand</label>
+                <label for="keypointHand">Main</label>
                 <select id="keypointHand">
-                  <option value="Right" selected>Right</option>
-                  <option value="Left">Left</option>
-                  <option value="Both">Both</option>
+                  <option value="Right" selected>Droite</option>
+                  <option value="Left">Gauche</option>
+                  <option value="Both">Deux mains</option>
                 </select>
               </div>
               <div class="field">
-                <label for="keypointSide">Side</label>
+                <label for="keypointSide">Cote</label>
                 <select id="keypointSide">
-                  <option value="left" selected>Left</option>
-                  <option value="right">Right</option>
-                  <option value="any">Any</option>
+                  <option value="left" selected>Gauche</option>
+                  <option value="right">Droit</option>
+                  <option value="any">Tous</option>
                 </select>
               </div>
             </div>
             <div class="button-row">
               <div class="field">
-                <label for="interpolateGap">Interp. gap</label>
+                <label for="interpolateGap">Interpolation</label>
                 <input id="interpolateGap" type="number" min="0" max="10" step="1" value="2">
               </div>
               <div class="field">
-                <label for="maxJumpPx">Max jump px</label>
+                <label for="maxJumpPx">Saut max px</label>
                 <input id="maxJumpPx" type="number" min="0" max="1000" step="5" value="120">
               </div>
             </div>
-            <button class="primary" id="extractKeypointsBtn" disabled>Extract COCO JSON</button>
-            <p class="note" id="keypointStatus">Choose a clip folder.</p>
+            <button class="primary" id="extractKeypointsBtn" disabled>Extraire JSON COCO</button>
+            <p class="note" id="keypointStatus">Choisis un dossier de clips.</p>
           </div>
         </section>
 
         <section class="panel">
-          <h2>Live</h2>
+          <h2>Segments</h2>
           <div class="panel-body">
             <div class="metrics">
               <div class="metric">
@@ -696,38 +710,38 @@
                 <strong id="handCount">0</strong>
               </div>
               <div class="metric">
-                <span>Checked</span>
+                <span>Actifs</span>
                 <strong id="aboveCount">0</strong>
               </div>
               <div class="metric">
-                <span>Last</span>
-                <strong id="activeState">Rest</strong>
+                <span>Etat</span>
+                <strong id="activeState">Repos</strong>
               </div>
             </div>
             <div class="button-row">
-              <button id="jsonBtn" disabled>Export JSON</button>
-              <button id="csvBtn" disabled>Export CSV</button>
+              <button id="jsonBtn" disabled>Exporter JSON</button>
+              <button id="csvBtn" disabled>Exporter CSV</button>
             </div>
             <div class="button-row">
-              <button id="checkAllBtn" disabled>Check all</button>
-              <button id="checkNoneBtn" disabled>Check none</button>
+              <button id="checkAllBtn" disabled>Tout cocher</button>
+              <button id="checkNoneBtn" disabled>Tout decocher</button>
             </div>
-            <button class="primary" id="clipsBtn" disabled>Export split videos</button>
+            <button class="primary" id="clipsBtn" disabled>Exporter les clips</button>
           </div>
           <div class="segments">
             <table>
               <thead>
                 <tr>
-                  <th>Use</th>
-                  <th>Play</th>
-                  <th>Rename</th>
-                  <th>Start f</th>
-                  <th>End f</th>
-                  <th>Edit</th>
+                  <th>Utiliser</th>
+                  <th>Lire</th>
+                  <th>Nom</th>
+                  <th>Debut f</th>
+                  <th>Fin f</th>
+                  <th>Editer</th>
                 </tr>
               </thead>
               <tbody id="segmentRows">
-                <tr><td colspan="6">No segments.</td></tr>
+                <tr><td colspan="6">Aucun segment.</td></tr>
               </tbody>
             </table>
           </div>
@@ -876,11 +890,11 @@
         segments = rows.map((item, index) => segmentFromImport(item, index, importedFps));
         lastPlayedIndex = -1;
         renderSegments();
-        setModelStatus(`Imported ${segments.length} clips`, "ready");
+        setModelStatus(`${segments.length} segments importes`, "ready");
         videoInfo.textContent = `${videoInfo.textContent} | imported ${file.name}`;
       } catch (error) {
         console.error(error);
-        setModelStatus("Clip JSON import failed", "error");
+        setModelStatus("Import JSON impossible", "error");
       } finally {
         segmentsFile.value = "";
       }
@@ -942,7 +956,7 @@
     }
 
     function defaultLabel(index) {
-      return `Sign_${String(index + 1).padStart(2, "0")}`;
+      return `Signe_${String(index + 1).padStart(2, "0")}`;
     }
 
     function filenameForSegment(segment, index, extension = "webm") {
@@ -980,7 +994,7 @@
       segments = [...segments, segment].sort((a, b) => a.start - b.start);
       lastPlayedIndex = segments.indexOf(segment);
       renderSegments();
-      setModelStatus(`Manual clip added: ${String(lastPlayedIndex + 1).padStart(2, "0")}`, "ready");
+      setModelStatus(`Clip manuel ajoute : ${String(lastPlayedIndex + 1).padStart(2, "0")}`, "ready");
       const input = segmentRows.querySelector(`.label-input[data-index="${lastPlayedIndex}"]`);
       if (input) input.focus();
     }
@@ -1070,7 +1084,7 @@
 
       handCount.textContent = getTrackedHands(results).length;
       aboveCount.textContent = above;
-      activeState.textContent = isActive ? "Sign" : "Rest";
+      activeState.textContent = isActive ? "Signe" : "Repos";
       activeState.style.color = isActive ? "var(--accent-2)" : "var(--ok)";
     }
 
@@ -1089,7 +1103,7 @@
       ctx.fillRect(rect.x, thresholdY - 12, 104, 24);
       ctx.fillStyle = "#ffffff";
       ctx.font = "700 12px Arial, Helvetica, sans-serif";
-      ctx.fillText("threshold", rect.x + 10, thresholdY + 4);
+      ctx.fillText("seuil", rect.x + 10, thresholdY + 4);
       ctx.restore();
     }
 
@@ -1146,33 +1160,33 @@
         const checked = segment.checked !== false ? "checked" : "";
         return `
           <tr class="${segment.checked === false ? "unchecked" : ""} ${index === lastPlayedIndex ? "last-played" : ""}">
-            <td><input class="segment-check" type="checkbox" data-index="${index}" ${checked} aria-label="Use segment ${index + 1}"></td>
-            <td><button class="play-segment" data-index="${index}">Play</button></td>
-            <td><input class="label-input" data-index="${index}" value="${escapeHtml(label)}" title="${escapeHtml(filename)}" aria-label="Segment label ${index + 1}"></td>
+            <td><input class="segment-check" type="checkbox" data-index="${index}" ${checked} aria-label="Utiliser le segment ${index + 1}"></td>
+            <td><button class="play-segment" data-index="${index}">Lire</button></td>
+            <td><input class="label-input" data-index="${index}" value="${escapeHtml(label)}" title="${escapeHtml(filename)}" aria-label="Nom du segment ${index + 1}"></td>
             <td>
               <div class="time-cell">
                 <button class="frame-step" data-index="${index}" data-field="start" data-delta="-1">-1f</button>
-                <input class="time-input" data-index="${index}" data-field="start" value="${secondsToFrame(segment.start)}" aria-label="Segment ${index + 1} start frame">
+                <input class="time-input" data-index="${index}" data-field="start" value="${secondsToFrame(segment.start)}" aria-label="Frame de debut du segment ${index + 1}">
                 <button class="frame-step" data-index="${index}" data-field="start" data-delta="1">+1f</button>
               </div>
             </td>
             <td>
               <div class="time-cell">
                 <button class="frame-step" data-index="${index}" data-field="end" data-delta="-1">-1f</button>
-                <input class="time-input" data-index="${index}" data-field="end" value="${secondsToFrame(segment.end)}" aria-label="Segment ${index + 1} end frame">
+                <input class="time-input" data-index="${index}" data-field="end" value="${secondsToFrame(segment.end)}" aria-label="Frame de fin du segment ${index + 1}">
                 <button class="frame-step" data-index="${index}" data-field="end" data-delta="1">+1f</button>
               </div>
             </td>
             <td>
               <div class="edit-actions">
-                <button class="mini-action delete-segment" data-index="${index}" title="Delete clip">Del</button>
-                <button class="mini-action merge-next" data-index="${index}" title="Merge with next clip" ${index >= segments.length - 1 ? "disabled" : ""}>M+</button>
+                <button class="mini-action delete-segment" data-index="${index}" title="Supprimer le clip">Suppr.</button>
+                <button class="mini-action merge-next" data-index="${index}" title="Fusionner avec le clip suivant" ${index >= segments.length - 1 ? "disabled" : ""}>M+</button>
               </div>
             </td>
           </tr>`;
       }).join("");
 
-      segmentRows.innerHTML = rows || '<tr><td colspan="6">No segments.</td></tr>';
+      segmentRows.innerHTML = rows || '<tr><td colspan="6">Aucun segment.</td></tr>';
       const hasSegments = segments.length > 0;
       const checkedCount = segments.filter((segment) => segment.checked !== false).length;
       jsonBtn.disabled = checkedCount === 0;
@@ -1216,7 +1230,7 @@
 
     async function scanVideo() {
       if (!currentVideoName || !video.src || scanning) {
-        setModelStatus("Choose a workspace video", "error");
+        setModelStatus("Choisis une video serveur", "error");
         return;
       }
       scanning = true;
@@ -1226,7 +1240,7 @@
       lastActiveTime = 0;
       lastPlayedIndex = -1;
       renderSegments();
-      setModelStatus("Python scanning", "ready");
+      setModelStatus("Scan Python en cours", "ready");
 
       try {
         const config = getConfig();
@@ -1249,13 +1263,13 @@
           })
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Python scan failed.");
+        if (!response.ok) throw new Error(result.error || "Echec du scan Python.");
       segments = (result.segments || []).map((segment) => ({ ...segment, checked: true }));
         lastPlayedIndex = -1;
-        setModelStatus(`Python scan done: ${segments.length} clips`, "ready");
+        setModelStatus(`Scan termine : ${segments.length} clips`, "ready");
       } catch (error) {
         console.error(error);
-        setModelStatus(error.message || "Python scan failed", "error");
+        setModelStatus(error.message || "Echec du scan Python", "error");
       } finally {
         openSegment = null;
         scanning = false;
@@ -1318,7 +1332,7 @@
         return;
       }
 
-      const header = "label,filename,start,end,startFrame,endFrame,duration,activeStart,activeEnd,editFps";
+      const header = "label,fichier,debut,fin,frameDebut,frameFin,duree,debutActif,finActif,fpsEdition";
       const lines = data.map((row) => [
         row.label,
         row.filename,
@@ -1341,7 +1355,7 @@
       exportingClips = true;
       clipsBtn.disabled = true;
       scanBtn.disabled = true;
-      setModelStatus("Exporting clips on server", "ready");
+      setModelStatus("Export des clips sur le serveur", "ready");
 
       try {
         const response = await fetch("/api/export-clips", {
@@ -1355,15 +1369,15 @@
           })
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Clip export failed.");
+        if (!response.ok) throw new Error(result.error || "Echec de l'export des clips.");
         await refreshBackendLists(result.clipFolder);
         clipFolder.value = result.clipFolder;
         keypointOutput.value = `workspace/keypoints/${sanitizeName(result.clipFolder.split("/").pop())}_coco_keypoints`;
-        keypointStatus.innerHTML = `${result.clips} server clip(s) ready for JSON extraction. <a href="/api/download-folder?folder=${escapeHtml(encodeURIComponent(result.clipFolder))}">Download clips zip</a>`;
-        setModelStatus(`Server clips ready: ${result.clips}`, "ready");
+        keypointStatus.innerHTML = `${result.clips} clip(s) serveur prets pour l'extraction JSON. <a href="/api/download-folder?folder=${escapeHtml(encodeURIComponent(result.clipFolder))}">Telecharger les clips ZIP</a>`;
+        setModelStatus(`Clips serveur prets : ${result.clips}`, "ready");
       } catch (error) {
         console.error(error);
-        setModelStatus(error.message || "Clip export failed", "error");
+        setModelStatus(error.message || "Echec de l'export des clips", "error");
       } finally {
         exportingClips = false;
         scanBtn.disabled = !currentVideoName || !video.src;
@@ -1469,7 +1483,7 @@
       currentVideoName = "";
       scanBtn.disabled = true;
       videoInfo.textContent = `${file.name} uploading...`;
-      setModelStatus("Uploading video to server", "ready");
+      setModelStatus("Upload de la video sur le serveur", "ready");
 
       const formData = new FormData();
       formData.append("video", file);
@@ -1478,21 +1492,21 @@
         body: formData
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Upload failed.");
+      if (!response.ok) throw new Error(result.error || "Echec de l'upload.");
 
       currentVideoName = result.video;
       video.src = result.video;
       if (result.defaultBaseName) baseName.value = result.defaultBaseName;
       resetLoadedVideo(`${result.name} uploaded`);
-      setModelStatus("Video uploaded on server", "ready");
+      setModelStatus("Video envoyee sur le serveur", "ready");
       await refreshBackendLists();
     }
 
     async function extractKeypoints() {
       if (!clipFolder.value) return;
       extractKeypointsBtn.disabled = true;
-      keypointStatus.textContent = "Extracting keypoints...";
-      setModelStatus("Extracting COCO JSON", "ready");
+      keypointStatus.textContent = "Extraction des keypoints...";
+      setModelStatus("Extraction JSON COCO", "ready");
       try {
         const response = await fetch("/api/extract-keypoints", {
           method: "POST",
@@ -1509,13 +1523,13 @@
           })
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Extraction failed.");
-        const downloadLink = result.downloadUrl ? ` <a href="${escapeHtml(result.downloadUrl)}">Download JSON zip</a>` : "";
+        if (!response.ok) throw new Error(result.error || "Echec de l'extraction.");
+        const downloadLink = result.downloadUrl ? ` <a href="${escapeHtml(result.downloadUrl)}">Telecharger les JSON ZIP</a>` : "";
         keypointStatus.innerHTML = `${result.videos} clips -> ${escapeHtml(result.outputDir)}, ${result.annotations} annotations, ${result.interpolated} interpolated, ${result.smoothed} smoothed, ${result.trackSwitches} track switches.${downloadLink}`;
-        setModelStatus("COCO JSON export done", "ready");
+        setModelStatus("Export JSON COCO termine", "ready");
       } catch (error) {
-        keypointStatus.textContent = error.message || "Extraction failed.";
-        setModelStatus("COCO JSON export failed", "error");
+        keypointStatus.textContent = error.message || "Echec de l'extraction.";
+        setModelStatus("Echec export JSON COCO", "error");
       } finally {
         extractKeypointsBtn.disabled = !clipFolder.value;
       }
@@ -1548,20 +1562,20 @@
           clipFolder.value = "Louna_prise1_clips";
         }
         extractKeypointsBtn.disabled = false;
-        keypointStatus.textContent = `${folders.folders.length} clip folder(s) found.`;
+          keypointStatus.textContent = `${folders.folders.length} dossier(s) de clips trouves.`;
       } else {
         clipFolder.innerHTML = "";
         extractKeypointsBtn.disabled = true;
-        keypointStatus.textContent = "No clip folder found.";
+        keypointStatus.textContent = "Aucun dossier de clips trouve.";
       }
     }
 
     async function initBackend() {
       try {
         await refreshBackendLists();
-        setModelStatus("Python backend ready", "ready");
+        setModelStatus("Serveur Python pret", "ready");
       } catch (error) {
-        setModelStatus("Start app.py server", "error");
+        setModelStatus("Demarre le serveur app.py", "error");
       }
     }
 
@@ -1583,8 +1597,8 @@
         await uploadVideoFile(file);
       } catch (error) {
         console.error(error);
-        setModelStatus(error.message || "Upload failed", "error");
-        videoInfo.textContent = "Upload failed.";
+        setModelStatus(error.message || "Echec de l'upload", "error");
+        videoInfo.textContent = "Upload impossible.";
       } finally {
         videoFile.value = "";
       }
@@ -1740,7 +1754,7 @@
       segments.splice(index, 2, merged);
       lastPlayedIndex = index;
       renderSegments();
-      setModelStatus(`Merged clip ${String(index + 1).padStart(2, "0")}`, "ready");
+      setModelStatus(`Clip fusionne ${String(index + 1).padStart(2, "0")}`, "ready");
     }
 
     segmentRows.addEventListener("click", (event) => {
