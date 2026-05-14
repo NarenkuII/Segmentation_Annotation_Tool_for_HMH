@@ -12,6 +12,7 @@ from urllib.parse import quote
 import cv2
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
+from batch_visualize_coco_dirs import render_json
 from extract_clip_keypoints import (
     assign_hand_tracks,
     annotation_matches_filters,
@@ -35,6 +36,7 @@ WORKSPACE_ROOT = ROOT / "workspace"
 UPLOAD_ROOT = WORKSPACE_ROOT / "uploads"
 CLIP_ROOT = WORKSPACE_ROOT / "clips"
 KEYPOINT_ROOT = WORKSPACE_ROOT / "keypoints"
+DATASET_ROOT = WORKSPACE_ROOT / "datasets"
 
 app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024
@@ -55,7 +57,7 @@ def default_label(index: int) -> str:
 
 
 def ensure_workspace_dirs() -> None:
-    for path in (UPLOAD_ROOT, CLIP_ROOT, KEYPOINT_ROOT):
+    for path in (UPLOAD_ROOT, CLIP_ROOT, KEYPOINT_ROOT, DATASET_ROOT):
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -216,6 +218,65 @@ def split_video_segments(
 
     (output_dir / "annotations.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
+
+
+def extract_keypoints_for_dir(
+    input_dir: Path,
+    output_dir: Path,
+    sample_fps: float | None,
+    hand: str,
+    side_filter: str,
+    handedness_mode: str,
+    interpolate_gap: int,
+    max_jump_px: float,
+    recursive: bool = False,
+) -> tuple[list[dict], dict]:
+    videos_found = iter_videos(input_dir, recursive)
+    if not videos_found:
+        raise ValueError("No clip videos found in folder.")
+
+    ensure_hand_model()
+    summaries = []
+    for video_path in videos_found:
+        relative = video_path.relative_to(input_dir)
+        output_path = output_dir / relative.parent / f"{safe_stem(relative.name)}.json"
+        with make_landmarker("video") as landmarker:
+            summaries.append(
+                clip_to_coco(
+                    video_path,
+                    output_path,
+                    landmarker,
+                    sample_fps,
+                    hand,
+                    interpolate_gap,
+                    max_jump_px,
+                    handedness_mode,
+                    side_filter,
+                )
+            )
+
+    manifest = {
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "videos": summaries,
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return summaries, manifest
+
+
+def render_first_skeleton_preview(keypoint_dir: Path, preview_dir: Path, hand: str) -> Path | None:
+    json_files = sorted(
+        path
+        for path in keypoint_dir.rglob("*.json")
+        if path.is_file() and path.name.lower() != "manifest.json"
+    )
+    if not json_files:
+        return None
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    output_path = preview_dir / f"{json_files[0].stem}_skeleton.mp4"
+    render_json(json_files[0], output_path, None, hand if hand in {"Right", "Left"} else "Both")
+    return output_path
 
 
 def analyze_video_hands(
@@ -569,6 +630,88 @@ def export_clips():
     )
 
 
+@app.post("/api/export-dataset")
+def export_dataset():
+    ensure_workspace_dirs()
+    data = request.get_json(force=True)
+    try:
+        video_path = resolve_video(data.get("video", ""))
+        segments = data.get("segments")
+        if not isinstance(segments, list):
+            raise ValueError("Segments must be a list.")
+
+        base_name = data.get("baseName") or f"{safe_stem(video_path.stem)}_"
+        dataset_name = safe_stem(data.get("outputName") or f"{safe_stem(video_path.stem)}_dataset_{uuid.uuid4().hex[:8]}")
+        dataset_dir = unique_child(DATASET_ROOT, dataset_name)
+        clip_dir = dataset_dir / "clips"
+        keypoint_dir = dataset_dir / "keypoints"
+        preview_dir = dataset_dir / "preview"
+
+        clip_manifest = split_video_segments(
+            video_path=video_path,
+            segments=segments,
+            output_dir=clip_dir,
+            base_name=base_name,
+            mirror_video=bool(data.get("mirrorVideo", False)),
+        )
+
+        sample_fps_raw = data.get("sampleFps", 10)
+        sample_fps = None if sample_fps_raw in ("", None, "all") else max(0.1, float(sample_fps_raw))
+        hand = data.get("hand", "Right")
+        if hand not in {"Right", "Left", "Both"}:
+            raise ValueError("Invalid hand filter.")
+        side_filter = data.get("sideFilter", "left")
+        if side_filter not in {"any", "left", "right"}:
+            raise ValueError("Invalid side filter.")
+        handedness_mode = data.get("handednessMode", "mediapipe")
+        if handedness_mode not in {"mediapipe", "swap"}:
+            raise ValueError("Invalid handedness mode.")
+        interpolate_gap = max(0, int(data.get("interpolateGap", 2)))
+        max_jump_px = max(0.0, float(data.get("maxJumpPx", 120)))
+
+        summaries, keypoint_manifest = extract_keypoints_for_dir(
+            input_dir=clip_dir,
+            output_dir=keypoint_dir,
+            sample_fps=sample_fps,
+            hand=hand,
+            side_filter=side_filter,
+            handedness_mode=handedness_mode,
+            interpolate_gap=interpolate_gap,
+            max_jump_px=max_jump_px,
+        )
+        preview_path = render_first_skeleton_preview(keypoint_dir, preview_dir, hand)
+
+        dataset_manifest = {
+            "source_video": relative_to_root(video_path),
+            "dataset_dir": relative_to_root(dataset_dir),
+            "clip_dir": relative_to_root(clip_dir),
+            "keypoint_dir": relative_to_root(keypoint_dir),
+            "preview": relative_to_root(preview_path) if preview_path else None,
+            "clips": clip_manifest,
+            "keypoints": keypoint_manifest,
+        }
+        (dataset_dir / "dataset_manifest.json").write_text(json.dumps(dataset_manifest, indent=2), encoding="utf-8")
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    preview_rel = relative_to_root(preview_path) if preview_path else ""
+    return jsonify(
+        {
+            "datasetDir": relative_to_root(dataset_dir),
+            "clipFolder": relative_to_root(clip_dir),
+            "keypointFolder": relative_to_root(keypoint_dir),
+            "clips": len(clip_manifest),
+            "videos": len(summaries),
+            "annotations": sum(item["annotations"] for item in summaries),
+            "interpolated": sum(item["interpolated"] for item in summaries),
+            "smoothed": sum(item["smoothed"] for item in summaries),
+            "trackSwitches": sum(item["track_switches"] for item in summaries),
+            "downloadUrl": f"/api/download-folder?folder={quote(relative_to_root(dataset_dir), safe='')}",
+            "previewUrl": f"/api/workspace-file?path={quote(preview_rel, safe='')}" if preview_rel else "",
+        }
+    )
+
+
 @app.get("/api/download-folder")
 def download_folder():
     try:
@@ -587,6 +730,19 @@ def download_folder():
             as_attachment=True,
             download_name=f"{folder.name}.zip",
         )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.get("/api/workspace-file")
+def workspace_file():
+    try:
+        path = resolve_inside_root(request.args.get("path", ""), "File")
+        if WORKSPACE_ROOT not in path.parents:
+            raise ValueError("Only managed workspace files can be served.")
+        if not path.exists() or not path.is_file():
+            raise ValueError("File not found.")
+        return send_from_directory(path.parent, path.name)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -674,33 +830,17 @@ def extract_keypoints():
         if not videos_found:
             raise ValueError("No clip videos found in folder.")
 
-        ensure_hand_model()
-        summaries = []
-        for video_path in videos_found:
-            relative = video_path.relative_to(input_dir)
-            output_path = output_dir / relative.parent / f"{safe_stem(relative.name)}.json"
-            with make_landmarker("video") as landmarker:
-                summaries.append(
-                    clip_to_coco(
-                        video_path,
-                        output_path,
-                        landmarker,
-                        sample_fps,
-                        hand,
-                        interpolate_gap,
-                        max_jump_px,
-                        handedness_mode,
-                        side_filter,
-                    )
-                )
-
-        manifest = {
-            "input_dir": str(input_dir),
-            "output_dir": str(output_dir),
-            "videos": summaries,
-        }
-        output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        summaries, manifest = extract_keypoints_for_dir(
+            input_dir=input_dir,
+            output_dir=output_dir,
+            sample_fps=sample_fps,
+            hand=hand,
+            side_filter=side_filter,
+            handedness_mode=handedness_mode,
+            interpolate_gap=interpolate_gap,
+            max_jump_px=max_jump_px,
+            recursive=recursive,
+        )
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 

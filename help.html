@@ -112,8 +112,9 @@
         <li>Si la main dominante est gauche, l'outil active le miroir pour normaliser les clips vers une main droite.</li>
         <li>Verifie l'overlay des mains. La main utilisee est coloree, les autres sont grisees.</li>
         <li>Clique sur <code>Scanner la video</code>.</li>
-        <li>Corrige les segments si besoin, puis clique sur <code>Exporter les clips</code>.</li>
-        <li>Clique sur <code>Extraire JSON COCO</code>, puis telecharge le ZIP des JSON.</li>
+        <li>Corrige les segments si besoin, puis clique sur <code>Exporter clips + JSON</code>.</li>
+        <li>L'outil cree un dossier complet avec les clips, les JSON keypoints et une preview squelette du premier JSON.</li>
+        <li>Telecharge le ZIP du dossier complet quand le lien apparait.</li>
       </ol>
     </section>
 
@@ -135,8 +136,9 @@
       <h2>Dossiers serveur</h2>
       <ul>
         <li><code>workspace/uploads/</code> : videos envoyees par les utilisateurs.</li>
-        <li><code>workspace/clips/</code> : clips coupes par le serveur.</li>
-        <li><code>workspace/keypoints/</code> : JSON COCO-style generes par MediaPipe.</li>
+        <li><code>workspace/datasets/</code> : dossiers complets contenant clips, JSON et previews.</li>
+        <li><code>workspace/clips/</code> : anciens exports de clips seuls.</li>
+        <li><code>workspace/keypoints/</code> : anciens exports JSON seuls.</li>
       </ul>
       <p>Ces dossiers ne sont pas envoyes sur GitHub.</p>
     </section>

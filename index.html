@@ -486,6 +486,15 @@
       margin: 0;
     }
 
+    .preview-video {
+      width: 100%;
+      max-height: 260px;
+      background: #000;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: none;
+    }
+
     @media (max-width: 960px) {
       main {
         grid-template-columns: 1fr;
@@ -699,6 +708,7 @@
             </div>
             <button class="primary" id="extractKeypointsBtn" disabled>Extraire JSON COCO</button>
             <p class="note" id="keypointStatus">Choisis un dossier de clips.</p>
+            <video class="preview-video" id="skeletonPreview" controls muted playsinline></video>
           </div>
         </section>
 
@@ -727,7 +737,7 @@
               <button id="checkAllBtn" disabled>Tout cocher</button>
               <button id="checkNoneBtn" disabled>Tout decocher</button>
             </div>
-            <button class="primary" id="clipsBtn" disabled>Exporter les clips</button>
+            <button class="primary" id="clipsBtn" disabled>Exporter clips + JSON</button>
           </div>
           <div class="segments">
             <table>
@@ -773,6 +783,7 @@
     const maxJumpPx = document.getElementById("maxJumpPx");
     const extractKeypointsBtn = document.getElementById("extractKeypointsBtn");
     const keypointStatus = document.getElementById("keypointStatus");
+    const skeletonPreview = document.getElementById("skeletonPreview");
     const baseName = document.getElementById("baseName");
     const videoInfo = document.getElementById("videoInfo");
     const thresholdRange = document.getElementById("thresholdRange");
@@ -1407,26 +1418,39 @@
       setModelStatus("Export des clips sur le serveur", "ready");
 
       try {
-        const response = await fetch("/api/export-clips", {
+        const response = await fetch("/api/export-dataset", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             video: currentVideoName,
             baseName: baseName.value,
             mirrorVideo: mirrorVideo.checked,
-            segments: checkedSegments
+            segments: checkedSegments,
+            sampleFps: keypointSampleFps.value,
+            hand: keypointHand.value,
+            sideFilter: keypointSide.value,
+            handednessMode: handLabelMode.value,
+            interpolateGap: interpolateGap.value,
+            maxJumpPx: maxJumpPx.value
           })
         });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || "Echec de l'export des clips.");
+        if (!response.ok) throw new Error(result.error || "Echec de l'export dataset.");
         await refreshBackendLists(result.clipFolder);
         clipFolder.value = result.clipFolder;
-        keypointOutput.value = `workspace/keypoints/${sanitizeName(result.clipFolder.split("/").pop())}_coco_keypoints`;
-        keypointStatus.innerHTML = `${result.clips} clip(s) serveur prets pour l'extraction JSON. <a href="/api/download-folder?folder=${escapeHtml(encodeURIComponent(result.clipFolder))}">Telecharger les clips ZIP</a>`;
-        setModelStatus(`Clips serveur prets : ${result.clips}`, "ready");
+        keypointOutput.value = result.keypointFolder || "";
+        keypointStatus.innerHTML = `${result.clips} clip(s), ${result.annotations} annotation(s) JSON. <a href="${escapeHtml(result.downloadUrl)}">Telecharger le dossier complet ZIP</a>`;
+        if (result.previewUrl) {
+          skeletonPreview.src = result.previewUrl;
+          skeletonPreview.style.display = "block";
+        } else {
+          skeletonPreview.removeAttribute("src");
+          skeletonPreview.style.display = "none";
+        }
+        setModelStatus(`Dataset pret : ${result.clips} clips + JSON`, "ready");
       } catch (error) {
         console.error(error);
-        setModelStatus(error.message || "Echec de l'export des clips", "error");
+        setModelStatus(error.message || "Echec de l'export dataset", "error");
       } finally {
         exportingClips = false;
         scanBtn.disabled = !currentVideoName || !video.src;
