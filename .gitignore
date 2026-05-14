@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+
+.venv/
+venv/
+env/
+
+# Local datasets, generated clips, and exports.
+done/
+*_clips/
+*_coco_keypoints/
+*_skeleton_videos/
+_tmp_tracking_test/
+
+# Large local media files.
+*.mp4
+*.mov
+*.webm
+*.avi
+*.mkv
+*.zip
+
+# Downloaded automatically by app.py when missing.
+hand_landmarker.task
+
+# Unrelated local admin script.
+block-adobe-internet.ps1

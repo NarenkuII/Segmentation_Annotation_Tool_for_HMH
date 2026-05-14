@@ -1,0 +1,1762 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LSF Sign Segmenter</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #617083;
+      --line: #d6dde6;
+      --panel: #ffffff;
+      --soft: #f4f6f8;
+      --accent: #0f766e;
+      --accent-2: #c2410c;
+      --danger: #b42318;
+      --ok: #166534;
+      --shadow: 0 18px 50px rgba(23, 32, 42, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(244, 246, 248, 0.95), rgba(233, 238, 244, 0.9)),
+        #eef2f5;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .status-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #94a3b8;
+      display: inline-block;
+      flex: 0 0 auto;
+    }
+
+    .dot.ready {
+      background: var(--ok);
+    }
+
+    .dot.error {
+      background: var(--danger);
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(420px, 1fr) minmax(620px, 740px);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .stage {
+      min-width: 0;
+      display: grid;
+      gap: 12px;
+      position: sticky;
+      top: 66px;
+    }
+
+    .viewer {
+      background: #111827;
+      border: 1px solid #101827;
+      box-shadow: var(--shadow);
+      min-height: 420px;
+      height: calc(100vh - 154px);
+      max-height: 760px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 8px;
+    }
+
+    video,
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    video {
+      background: #0b1220;
+    }
+
+    .viewer.mirrored video {
+      transform: scaleX(-1);
+    }
+
+    canvas {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #dbe4ef;
+      text-align: center;
+      padding: 24px;
+      pointer-events: none;
+    }
+
+    .empty-state strong {
+      display: block;
+      font-size: 20px;
+      margin-bottom: 8px;
+      color: #ffffff;
+    }
+
+    .timeline {
+      height: 54px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 8px 22px rgba(23, 32, 42, 0.08);
+    }
+
+    .timeline-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .timeline-track {
+      position: absolute;
+      inset: 12px;
+      border-radius: 6px;
+      background: #e2e8f0;
+    }
+
+    .segment-bar {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      border-radius: 4px;
+      background: var(--accent);
+      min-width: 2px;
+    }
+
+    .playhead {
+      position: absolute;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: var(--accent-2);
+      transform: translateX(-1px);
+    }
+
+    aside {
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(23, 32, 42, 0.08);
+      overflow: hidden;
+    }
+
+    .panel h2 {
+      font-size: 14px;
+      margin: 0;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fafbfc;
+    }
+
+    .panel-body {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    input[type="number"],
+    input[type="text"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 9px;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .check-row input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button.warn {
+      border-color: #fed7aa;
+      background: #fff7ed;
+      color: #9a3412;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      min-width: 0;
+      background: var(--soft);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 20px;
+      line-height: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .segments {
+      max-height: calc(100vh - 310px);
+      min-height: 320px;
+      overflow: auto;
+      border-top: 1px solid var(--line);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 8px 8px;
+      border-bottom: 1px solid #edf1f5;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #fafbfc;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      z-index: 1;
+    }
+
+    .flag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 24px;
+      border-radius: 5px;
+      color: #fff;
+      background: var(--accent);
+      font-weight: 700;
+    }
+
+    .label-input {
+      width: 100%;
+      min-width: 190px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 7px;
+    }
+
+    .time-cell {
+      display: grid;
+      grid-template-columns: 34px 86px 34px;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .time-input {
+      width: 86px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 5px;
+      text-align: right;
+    }
+
+    .frame-step {
+      min-height: 30px;
+      padding: 0;
+      font-size: 12px;
+    }
+
+    .edit-actions {
+      display: grid;
+      grid-template-columns: 40px 40px;
+      gap: 4px;
+    }
+
+    .mini-action {
+      min-height: 30px;
+      padding: 0;
+      font-size: 12px;
+    }
+
+    .delete-segment {
+      border-color: #fecaca;
+      color: #991b1b;
+      background: #fff5f5;
+    }
+
+    .filename-cell {
+      max-width: 170px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    tr.unchecked {
+      opacity: 0.5;
+    }
+
+    tr.last-played {
+      background: #ecfeff;
+      outline: 2px solid #0891b2;
+      outline-offset: -2px;
+    }
+
+    .play-segment {
+      min-height: 32px;
+      padding: 0 10px;
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+    }
+
+    @media (max-width: 960px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .stage {
+        position: sticky;
+        top: 74px;
+        z-index: 3;
+      }
+
+      .viewer {
+        height: min(66vh, 620px);
+        min-height: 320px;
+      }
+    }
+
+    @media (max-width: 560px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .status-strip {
+        justify-content: flex-start;
+      }
+
+      main {
+        padding: 10px;
+      }
+
+      .metrics,
+      .button-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>LSF Sign Segmenter</h1>
+      <div class="status-strip">
+        <span id="modelDot" class="dot"></span>
+        <span id="modelStatus">Python backend ready</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="stage" aria-label="Video analysis">
+        <div class="viewer" id="viewer">
+          <video id="video" controls playsinline></video>
+          <canvas id="overlay"></canvas>
+          <div class="empty-state" id="emptyState">
+            <div>
+              <strong>Import a video</strong>
+              <span>Hands below the line are rest. Hands above the line are signs.</span>
+            </div>
+          </div>
+        </div>
+        <div class="timeline" aria-label="Detected sign segments">
+          <div class="timeline-track" id="timelineTrack"></div>
+          <div class="playhead" id="playhead"></div>
+        </div>
+        <div class="timeline-actions">
+          <button id="addClipBtn" disabled>Add clip at playhead</button>
+          <button id="playLastBtn" disabled>Replay last</button>
+        </div>
+      </section>
+
+      <aside>
+        <section class="panel">
+          <h2>Source</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="videoFile">Video file</label>
+              <input id="videoFile" type="file" accept="video/*">
+            </div>
+            <div class="field">
+              <label for="segmentsFile">Import clip JSON</label>
+              <input id="segmentsFile" type="file" accept="application/json,.json">
+            </div>
+            <div class="field">
+              <label>Workspace videos</label>
+              <div class="stack" id="workspaceVideos">
+                <button class="workspace-video" data-src="usb_cam_browser.mp4">usb_cam_browser.mp4</button>
+                <button class="workspace-video" data-src="laptop_cam_browser.mp4">laptop_cam_browser.mp4</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="baseName">Generic file name</label>
+              <input id="baseName" type="text" value="Francois_prise1_" spellcheck="false">
+            </div>
+            <div class="button-row">
+              <button class="primary" id="scanBtn" disabled>Scan video</button>
+              <button class="warn" id="clearBtn" disabled>Clear marks</button>
+            </div>
+            <p class="note" id="videoInfo">No file selected.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Threshold</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="thresholdRange">Line position</label>
+              <input id="thresholdRange" type="range" min="5" max="95" value="62">
+            </div>
+            <label class="check-row" for="mirrorVideo">
+              <input id="mirrorVideo" type="checkbox">
+              Mirror video horizontally
+            </label>
+            <div class="field">
+              <label for="handLabelMode">Hand labels</label>
+              <select id="handLabelMode">
+                <option value="mediapipe" selected>MediaPipe</option>
+                <option value="swap">Swap Left/Right</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="trackedHand">Tracked hand</label>
+              <select id="trackedHand">
+                <option value="Right" selected>Right only</option>
+                <option value="Left">Left only</option>
+                <option value="Both">Both hands</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="minLandmarks">Minimum landmarks above line</label>
+              <input id="minLandmarks" type="number" min="1" max="42" value="2">
+            </div>
+            <div class="field">
+              <label for="minDuration">Minimum sign duration, seconds</label>
+              <input id="minDuration" type="number" min="0.05" max="5" step="0.05" value="0.20">
+            </div>
+            <div class="field">
+              <label for="restGap">Rest gap to close sign, seconds</label>
+              <input id="restGap" type="number" min="0.05" max="3" step="0.05" value="0.25">
+            </div>
+            <div class="field">
+              <label for="clipPaddingBefore">Clip padding before sign, seconds</label>
+              <input id="clipPaddingBefore" type="number" min="0" max="3" step="0.05" value="0.20">
+            </div>
+            <div class="field">
+              <label for="clipPaddingAfter">Clip padding after sign, seconds</label>
+              <input id="clipPaddingAfter" type="number" min="0" max="3" step="0.05" value="0.30">
+            </div>
+            <div class="field">
+              <label for="sampleFps">Python scan FPS</label>
+              <input id="sampleFps" type="number" min="3" max="30" step="1" value="15">
+            </div>
+            <div class="field">
+              <label for="editFrameFps">Manual edit FPS</label>
+              <input id="editFrameFps" type="number" min="1" max="120" step="1" value="30">
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Keypoints</h2>
+          <div class="panel-body">
+            <div class="field">
+              <label for="clipFolder">Clip folder</label>
+              <select id="clipFolder"></select>
+            </div>
+            <div class="field">
+              <label for="keypointOutput">Output folder</label>
+              <input id="keypointOutput" type="text" value="Louna_prise1_clips_coco_keypoints" spellcheck="false">
+            </div>
+            <div class="button-row">
+              <div class="field">
+                <label for="keypointSampleFps">Sample FPS</label>
+                <input id="keypointSampleFps" type="number" min="0" max="120" step="1" value="10">
+              </div>
+              <div class="field">
+                <label for="keypointHand">Hand</label>
+                <select id="keypointHand">
+                  <option value="Both" selected>Both</option>
+                  <option value="Right">Right</option>
+                  <option value="Left">Left</option>
+                </select>
+              </div>
+            </div>
+            <div class="button-row">
+              <div class="field">
+                <label for="interpolateGap">Interp. gap</label>
+                <input id="interpolateGap" type="number" min="0" max="10" step="1" value="2">
+              </div>
+              <div class="field">
+                <label for="maxJumpPx">Max jump px</label>
+                <input id="maxJumpPx" type="number" min="0" max="1000" step="5" value="120">
+              </div>
+            </div>
+            <button class="primary" id="extractKeypointsBtn" disabled>Extract COCO JSON</button>
+            <p class="note" id="keypointStatus">Choose a clip folder.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Live</h2>
+          <div class="panel-body">
+            <div class="metrics">
+              <div class="metric">
+                <span>Segments</span>
+                <strong id="handCount">0</strong>
+              </div>
+              <div class="metric">
+                <span>Checked</span>
+                <strong id="aboveCount">0</strong>
+              </div>
+              <div class="metric">
+                <span>Last</span>
+                <strong id="activeState">Rest</strong>
+              </div>
+            </div>
+            <div class="button-row">
+              <button id="jsonBtn" disabled>Export JSON</button>
+              <button id="csvBtn" disabled>Export CSV</button>
+            </div>
+            <div class="button-row">
+              <button id="checkAllBtn" disabled>Check all</button>
+              <button id="checkNoneBtn" disabled>Check none</button>
+            </div>
+            <button class="primary" id="clipsBtn" disabled>Export split videos</button>
+          </div>
+          <div class="segments">
+            <table>
+              <thead>
+                <tr>
+                  <th>Use</th>
+                  <th>Play</th>
+                  <th>Rename</th>
+                  <th>Start f</th>
+                  <th>End f</th>
+                  <th>Edit</th>
+                </tr>
+              </thead>
+              <tbody id="segmentRows">
+                <tr><td colspan="6">No segments.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script>
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+    const video = document.getElementById("video");
+    const overlay = document.getElementById("overlay");
+    const ctx = overlay.getContext("2d");
+    const viewer = document.getElementById("viewer");
+    const emptyState = document.getElementById("emptyState");
+    const modelDot = document.getElementById("modelDot");
+    const modelStatus = document.getElementById("modelStatus");
+    const videoFile = document.getElementById("videoFile");
+    const segmentsFile = document.getElementById("segmentsFile");
+    const workspaceVideos = document.getElementById("workspaceVideos");
+    const clipFolder = document.getElementById("clipFolder");
+    const keypointOutput = document.getElementById("keypointOutput");
+    const keypointSampleFps = document.getElementById("keypointSampleFps");
+    const keypointHand = document.getElementById("keypointHand");
+    const interpolateGap = document.getElementById("interpolateGap");
+    const maxJumpPx = document.getElementById("maxJumpPx");
+    const extractKeypointsBtn = document.getElementById("extractKeypointsBtn");
+    const keypointStatus = document.getElementById("keypointStatus");
+    const baseName = document.getElementById("baseName");
+    const videoInfo = document.getElementById("videoInfo");
+    const thresholdRange = document.getElementById("thresholdRange");
+    const mirrorVideo = document.getElementById("mirrorVideo");
+    const handLabelMode = document.getElementById("handLabelMode");
+    const trackedHand = document.getElementById("trackedHand");
+    const minLandmarksInput = document.getElementById("minLandmarks");
+    const minDurationInput = document.getElementById("minDuration");
+    const restGapInput = document.getElementById("restGap");
+    const clipPaddingBeforeInput = document.getElementById("clipPaddingBefore");
+    const clipPaddingAfterInput = document.getElementById("clipPaddingAfter");
+    const sampleFpsInput = document.getElementById("sampleFps");
+    const editFrameFpsInput = document.getElementById("editFrameFps");
+    const handCount = document.getElementById("handCount");
+    const aboveCount = document.getElementById("aboveCount");
+    const activeState = document.getElementById("activeState");
+    const scanBtn = document.getElementById("scanBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const jsonBtn = document.getElementById("jsonBtn");
+    const csvBtn = document.getElementById("csvBtn");
+    const checkAllBtn = document.getElementById("checkAllBtn");
+    const checkNoneBtn = document.getElementById("checkNoneBtn");
+    const clipsBtn = document.getElementById("clipsBtn");
+    const segmentRows = document.getElementById("segmentRows");
+    const timelineTrack = document.getElementById("timelineTrack");
+    const playhead = document.getElementById("playhead");
+    const addClipBtn = document.getElementById("addClipBtn");
+    const playLastBtn = document.getElementById("playLastBtn");
+
+    let lastResults = null;
+    let thresholdPercent = Number(thresholdRange.value);
+    let thresholdY = 0;
+    let segments = [];
+    let openSegment = null;
+    let lastActiveTime = 0;
+    let scanning = false;
+    let exportingClips = false;
+    let drawing = false;
+    let objectUrl = null;
+    let currentVideoName = "";
+    let lastPlayedIndex = -1;
+    let workspaceVideoNames = [];
+
+    function formatTime(seconds) {
+      if (!Number.isFinite(seconds)) return "0.00";
+      return seconds.toFixed(2);
+    }
+
+    function frameStepSeconds() {
+      return 1 / Math.max(1, Number(editFrameFpsInput.value) || 30);
+    }
+
+    function editFps() {
+      return Math.max(1, Number(editFrameFpsInput.value) || 30);
+    }
+
+    function secondsToFrame(seconds) {
+      return Math.max(0, Math.round((Number(seconds) || 0) * editFps()));
+    }
+
+    function frameToSeconds(frame) {
+      return Math.max(0, (Number(frame) || 0) / editFps());
+    }
+
+    function clampTime(value) {
+      const duration = video.duration || Number.POSITIVE_INFINITY;
+      return Math.max(0, Math.min(duration, Number(value) || 0));
+    }
+
+    function normalizeSegment(segment) {
+      let start = clampTime(segment.start);
+      let end = clampTime(segment.end);
+      if (end <= start) end = clampTime(start + frameStepSeconds());
+      return {
+        ...segment,
+        start,
+        end,
+        activeStart: Number.isFinite(segment.activeStart) ? segment.activeStart : start,
+        activeEnd: Number.isFinite(segment.activeEnd) ? segment.activeEnd : end
+      };
+    }
+
+    function segmentFromImport(item, index, importedFps) {
+      const sourceFps = Number(item.editFps || importedFps || editFps());
+      let start = Number(item.start);
+      let end = Number(item.end);
+      if (!Number.isFinite(start) && Number.isFinite(Number(item.startFrame))) {
+        start = Number(item.startFrame) / Math.max(1, sourceFps);
+      }
+      if (!Number.isFinite(end) && Number.isFinite(Number(item.endFrame))) {
+        end = Number(item.endFrame) / Math.max(1, sourceFps);
+      }
+      if (!Number.isFinite(start)) start = 0;
+      if (!Number.isFinite(end)) end = start + frameStepSeconds();
+      return normalizeSegment({
+        label: item.label || defaultLabel(index),
+        checked: item.checked !== false,
+        manual: item.manual === true,
+        mirrored: item.mirrored === true,
+        activeStart: Number.isFinite(Number(item.activeStart)) ? Number(item.activeStart) : start,
+        activeEnd: Number.isFinite(Number(item.activeEnd)) ? Number(item.activeEnd) : end,
+        start,
+        end
+      });
+    }
+
+    async function importSegmentsFile(file) {
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const rows = Array.isArray(parsed) ? parsed : parsed.segments;
+        if (!Array.isArray(rows)) throw new Error("JSON must be an array or contain a segments array.");
+        const importedFps = Number(parsed.editFps || parsed.fps || parsed.info?.editFps || parsed.info?.fps);
+        segments = rows.map((item, index) => segmentFromImport(item, index, importedFps));
+        lastPlayedIndex = -1;
+        renderSegments();
+        setModelStatus(`Imported ${segments.length} clips`, "ready");
+        videoInfo.textContent = `${videoInfo.textContent} | imported ${file.name}`;
+      } catch (error) {
+        console.error(error);
+        setModelStatus("Clip JSON import failed", "error");
+      } finally {
+        segmentsFile.value = "";
+      }
+    }
+
+    function setModelStatus(text, state) {
+      modelStatus.textContent = text;
+      modelDot.className = "dot" + (state ? " " + state : "");
+    }
+
+    function resizeCanvas() {
+      const rect = viewer.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      overlay.width = Math.max(1, Math.round(rect.width * ratio));
+      overlay.height = Math.max(1, Math.round(rect.height * ratio));
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      drawOverlay();
+    }
+
+    function getVideoRect() {
+      const rect = viewer.getBoundingClientRect();
+      const vw = video.videoWidth || rect.width;
+      const vh = video.videoHeight || rect.height;
+      const scale = Math.min(rect.width / vw, rect.height / vh);
+      const width = vw * scale;
+      const height = vh * scale;
+      return {
+        x: (rect.width - width) / 2,
+        y: (rect.height - height) / 2,
+        width,
+        height
+      };
+    }
+
+    function getConfig() {
+      return {
+        minLandmarks: Math.max(1, Number(minLandmarksInput.value) || 1),
+        minDuration: Math.max(0.05, Number(minDurationInput.value) || 0.2),
+        restGap: Math.max(0.05, Number(restGapInput.value) || 0.25),
+        paddingBefore: Math.max(0, Number(clipPaddingBeforeInput.value) || 0),
+        paddingAfter: Math.max(0, Number(clipPaddingAfterInput.value) || 0)
+      };
+    }
+
+    function sanitizeName(value) {
+      return String(value || "")
+        .trim()
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+        .replace(/\s+/g, "_")
+        .replace(/_+/g, "_");
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function defaultLabel(index) {
+      return `Sign_${String(index + 1).padStart(2, "0")}`;
+    }
+
+    function filenameForSegment(segment, index, extension = "webm") {
+      const prefix = sanitizeName(baseName.value) || "LSF_";
+      const label = sanitizeName(segment.label || defaultLabel(index));
+      return `${prefix}${label}.${extension}`;
+    }
+
+    function makeSegment(start, end) {
+      const config = getConfig();
+      const index = segments.length;
+      return normalizeSegment({
+        label: defaultLabel(index),
+        checked: true,
+        activeStart: start,
+        activeEnd: end,
+        start: Math.max(0, start - config.paddingBefore),
+        end: Math.min(video.duration || end + config.paddingAfter, end + config.paddingAfter)
+      });
+    }
+
+    function addManualClip() {
+      if (!video.src || !Number.isFinite(video.duration)) return;
+      const center = clampTime(video.currentTime || 0);
+      const half = 0.5;
+      const segment = normalizeSegment({
+        label: defaultLabel(segments.length),
+        checked: true,
+        manual: true,
+        activeStart: Math.max(0, center - half),
+        activeEnd: Math.min(video.duration, center + half),
+        start: Math.max(0, center - half),
+        end: Math.min(video.duration, center + half)
+      });
+      segments = [...segments, segment].sort((a, b) => a.start - b.start);
+      lastPlayedIndex = segments.indexOf(segment);
+      renderSegments();
+      setModelStatus(`Manual clip added: ${String(lastPlayedIndex + 1).padStart(2, "0")}`, "ready");
+      const input = segmentRows.querySelector(`.label-input[data-index="${lastPlayedIndex}"]`);
+      if (input) input.focus();
+    }
+
+    function updateSegmentClipBounds() {
+      const config = getConfig();
+      segments = segments.map((segment) => ({
+        ...segment,
+        start: segment.manual ? segment.start : Math.max(0, segment.activeStart - config.paddingBefore),
+        end: segment.manual ? segment.end : Math.min(video.duration || segment.activeEnd + config.paddingAfter, segment.activeEnd + config.paddingAfter)
+      }));
+      renderSegments();
+    }
+
+    function landmarkToPoint(landmark, rect) {
+      const x = mirrorVideo.checked ? 1 - landmark.x : landmark.x;
+      return {
+        x: rect.x + x * rect.width,
+        y: rect.y + landmark.y * rect.height
+      };
+    }
+
+    function normalizeHandLabel(label) {
+      if (handLabelMode.value !== "swap") return label;
+      if (label === "Left") return "Right";
+      if (label === "Right") return "Left";
+      return label;
+    }
+
+    function getTrackedHands(results) {
+      if (!results || !results.multiHandLandmarks) return [];
+      const mode = trackedHand.value;
+      return results.multiHandLandmarks
+        .map((landmarks, index) => {
+          const handedness = results.multiHandedness && results.multiHandedness[index];
+          const label = normalizeHandLabel(handedness && handedness.label ? handedness.label : "");
+          return { landmarks, label };
+        })
+        .filter((hand) => mode === "Both" || hand.label === mode);
+    }
+
+    function countAboveThreshold(results) {
+      const rect = getVideoRect();
+      thresholdY = rect.y + rect.height * (thresholdPercent / 100);
+      let count = 0;
+      getTrackedHands(results).forEach((hand) => {
+        hand.landmarks.forEach((landmark) => {
+          if (landmarkToPoint(landmark, rect).y < thresholdY) count += 1;
+        });
+      });
+      return count;
+    }
+
+    function updateDetector(results, time, shouldRecord = false) {
+      const config = getConfig();
+      const above = countAboveThreshold(results);
+      const isActive = above >= config.minLandmarks;
+
+      if (shouldRecord && isActive) {
+        lastActiveTime = time;
+        if (!openSegment) {
+          openSegment = { start: time, end: time };
+        } else {
+          openSegment.end = time;
+        }
+      } else if (shouldRecord && openSegment && time - lastActiveTime >= config.restGap) {
+        openSegment.end = lastActiveTime;
+        if (openSegment.end - openSegment.start >= config.minDuration) {
+          segments.push(makeSegment(openSegment.start, openSegment.end));
+        }
+        openSegment = null;
+        renderSegments();
+      }
+
+      handCount.textContent = getTrackedHands(results).length;
+      aboveCount.textContent = above;
+      activeState.textContent = isActive ? "Sign" : "Rest";
+      activeState.style.color = isActive ? "var(--accent-2)" : "var(--ok)";
+    }
+
+    function drawThreshold(rect) {
+      thresholdY = rect.y + rect.height * (thresholdPercent / 100);
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#f97316";
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(rect.x, thresholdY);
+      ctx.lineTo(rect.x + rect.width, thresholdY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(249, 115, 22, 0.92)";
+      ctx.fillRect(rect.x, thresholdY - 12, 104, 24);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "700 12px Arial, Helvetica, sans-serif";
+      ctx.fillText("threshold", rect.x + 10, thresholdY + 4);
+      ctx.restore();
+    }
+
+    function drawHands(results, rect) {
+      getTrackedHands(results).forEach((hand) => {
+        const landmarks = hand.landmarks;
+        ctx.save();
+        ctx.strokeStyle = "#22c55e";
+        ctx.lineWidth = 3;
+        window.HAND_CONNECTIONS.forEach(([start, end]) => {
+          const a = landmarkToPoint(landmarks[start], rect);
+          const b = landmarkToPoint(landmarks[end], rect);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        });
+        ctx.restore();
+        landmarks.forEach((point) => {
+          const mapped = landmarkToPoint(point, rect);
+          ctx.beginPath();
+          ctx.arc(mapped.x, mapped.y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = mapped.y < thresholdY ? "#f97316" : "#38bdf8";
+          ctx.fill();
+        });
+      });
+    }
+
+    function drawOverlay() {
+      const rect = getVideoRect();
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      drawThreshold(rect);
+      drawHands(lastResults, rect);
+      renderTimeline();
+    }
+
+    function renderSegments() {
+      const rows = segments.map((segment, index) => {
+        const label = segment.label || defaultLabel(index);
+        const filename = filenameForSegment(segment, index);
+        const checked = segment.checked !== false ? "checked" : "";
+        return `
+          <tr class="${segment.checked === false ? "unchecked" : ""} ${index === lastPlayedIndex ? "last-played" : ""}">
+            <td><input class="segment-check" type="checkbox" data-index="${index}" ${checked} aria-label="Use segment ${index + 1}"></td>
+            <td><button class="play-segment" data-index="${index}">Play</button></td>
+            <td><input class="label-input" data-index="${index}" value="${escapeHtml(label)}" title="${escapeHtml(filename)}" aria-label="Segment label ${index + 1}"></td>
+            <td>
+              <div class="time-cell">
+                <button class="frame-step" data-index="${index}" data-field="start" data-delta="-1">-1f</button>
+                <input class="time-input" data-index="${index}" data-field="start" value="${secondsToFrame(segment.start)}" aria-label="Segment ${index + 1} start frame">
+                <button class="frame-step" data-index="${index}" data-field="start" data-delta="1">+1f</button>
+              </div>
+            </td>
+            <td>
+              <div class="time-cell">
+                <button class="frame-step" data-index="${index}" data-field="end" data-delta="-1">-1f</button>
+                <input class="time-input" data-index="${index}" data-field="end" value="${secondsToFrame(segment.end)}" aria-label="Segment ${index + 1} end frame">
+                <button class="frame-step" data-index="${index}" data-field="end" data-delta="1">+1f</button>
+              </div>
+            </td>
+            <td>
+              <div class="edit-actions">
+                <button class="mini-action delete-segment" data-index="${index}" title="Delete clip">Del</button>
+                <button class="mini-action merge-next" data-index="${index}" title="Merge with next clip" ${index >= segments.length - 1 ? "disabled" : ""}>M+</button>
+              </div>
+            </td>
+          </tr>`;
+      }).join("");
+
+      segmentRows.innerHTML = rows || '<tr><td colspan="6">No segments.</td></tr>';
+      const hasSegments = segments.length > 0;
+      const checkedCount = segments.filter((segment) => segment.checked !== false).length;
+      jsonBtn.disabled = checkedCount === 0;
+      csvBtn.disabled = checkedCount === 0;
+      clipsBtn.disabled = checkedCount === 0 || !video.src || exportingClips;
+      checkAllBtn.disabled = !hasSegments;
+      checkNoneBtn.disabled = !hasSegments;
+      clearBtn.disabled = !hasSegments && !video.src;
+      addClipBtn.disabled = !video.src || !Number.isFinite(video.duration);
+      playLastBtn.disabled = lastPlayedIndex < 0 || !segments[lastPlayedIndex];
+      handCount.textContent = segments.length;
+      aboveCount.textContent = checkedCount;
+      activeState.textContent = lastPlayedIndex >= 0 ? String(lastPlayedIndex + 1).padStart(2, "0") : "-";
+      renderTimeline();
+    }
+
+    function renderTimeline() {
+      const duration = video.duration || 0;
+      [...timelineTrack.querySelectorAll(".segment-bar")].forEach((node) => node.remove());
+      if (duration > 0) {
+        segments.forEach((segment, index) => {
+          const bar = document.createElement("div");
+          bar.className = "segment-bar";
+          if (segment.manual) bar.style.background = "#c2410c";
+          if (index === lastPlayedIndex) bar.style.outline = "2px solid #0891b2";
+          bar.dataset.index = index;
+          bar.title = `${segment.label || defaultLabel(index)} ${formatTime(segment.start)}-${formatTime(segment.end)}`;
+          bar.style.left = `${Math.max(0, (segment.start / duration) * 100)}%`;
+          bar.style.width = `${Math.max(0.3, ((segment.end - segment.start) / duration) * 100)}%`;
+          timelineTrack.appendChild(bar);
+        });
+        playhead.style.left = `${12 + ((timelineTrack.clientWidth || 1) * (video.currentTime / duration))}px`;
+      } else {
+        playhead.style.left = "12px";
+      }
+    }
+
+    async function detectFrame() {
+      return Promise.resolve();
+    }
+
+    async function scanVideo() {
+      if (!currentVideoName || !video.src || scanning) {
+        setModelStatus("Choose a workspace video", "error");
+        return;
+      }
+      scanning = true;
+      scanBtn.disabled = true;
+      segments = [];
+      openSegment = null;
+      lastActiveTime = 0;
+      lastPlayedIndex = -1;
+      renderSegments();
+      setModelStatus("Python scanning", "ready");
+
+      try {
+        const config = getConfig();
+        const response = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            video: currentVideoName,
+            thresholdPercent,
+            trackedHand: trackedHand.value,
+            handednessMode: handLabelMode.value,
+            minLandmarks: config.minLandmarks,
+            minDuration: config.minDuration,
+            restGap: config.restGap,
+            paddingBefore: config.paddingBefore,
+            paddingAfter: config.paddingAfter,
+            sampleFps: Number(sampleFpsInput.value) || 15
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Python scan failed.");
+      segments = (result.segments || []).map((segment) => ({ ...segment, checked: true }));
+        lastPlayedIndex = -1;
+        setModelStatus(`Python scan done: ${segments.length} clips`, "ready");
+      } catch (error) {
+        console.error(error);
+        setModelStatus(error.message || "Python scan failed", "error");
+      } finally {
+        openSegment = null;
+        scanning = false;
+        scanBtn.disabled = false;
+        renderSegments();
+      }
+    }
+
+    function waitForSeek() {
+      return new Promise((resolve) => {
+        const finish = () => {
+          video.removeEventListener("seeked", finish);
+          resolve();
+        };
+        video.addEventListener("seeked", finish, { once: true });
+        setTimeout(finish, 180);
+      });
+    }
+
+    function download(name, type, content) {
+      const blob = content instanceof Blob ? content : new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function csvCell(value) {
+      const text = String(value ?? "");
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    }
+
+    function segmentExportRows() {
+      return segments
+      .map((segment, index) => ({ segment, index }))
+      .filter((item) => item.segment.checked !== false)
+      .map(({ segment, index }) => ({
+        label: segment.label || defaultLabel(index),
+        filename: filenameForSegment(segment, index),
+        start: Number(segment.start.toFixed(3)),
+        end: Number(segment.end.toFixed(3)),
+        startFrame: secondsToFrame(segment.start),
+        endFrame: secondsToFrame(segment.end),
+        duration: Number((segment.end - segment.start).toFixed(3)),
+        activeStart: Number(segment.activeStart.toFixed(3)),
+        activeEnd: Number(segment.activeEnd.toFixed(3)),
+        editFps: editFps()
+      }));
+    }
+
+    function exportData(kind) {
+      const data = segmentExportRows();
+
+      if (kind === "json") {
+        download("lsf-sign-segments.json", "application/json", JSON.stringify(data, null, 2));
+        return;
+      }
+
+      const header = "label,filename,start,end,startFrame,endFrame,duration,activeStart,activeEnd,editFps";
+      const lines = data.map((row) => [
+        row.label,
+        row.filename,
+        row.start,
+        row.end,
+        row.startFrame,
+        row.endFrame,
+        row.duration,
+        row.activeStart,
+        row.activeEnd,
+        row.editFps
+      ].map(csvCell).join(","));
+      download("lsf-sign-segments.csv", "text/csv", [header, ...lines].join("\n"));
+    }
+
+    async function exportSplitVideos() {
+      const checkedSegments = segments
+        .map((segment, index) => ({ segment, index }))
+        .filter((item) => item.segment.checked !== false);
+      if (!checkedSegments.length || !video.src || exportingClips) return;
+      if (!window.JSZip) {
+        setModelStatus("Zip library failed", "error");
+        return;
+      }
+
+      exportingClips = true;
+      clipsBtn.disabled = true;
+      scanBtn.disabled = true;
+      const shouldMirrorExport = mirrorVideo.checked;
+      const originalTime = video.currentTime;
+      const wasPaused = video.paused;
+      video.pause();
+
+      try {
+        const zip = new window.JSZip();
+        const manifest = [];
+        for (let exportIndex = 0; exportIndex < checkedSegments.length; exportIndex += 1) {
+          const { segment, index } = checkedSegments[exportIndex];
+          setModelStatus(`Exporting ${exportIndex + 1}/${checkedSegments.length}${shouldMirrorExport ? " mirrored" : ""}`, "ready");
+          const blob = await recordSegment(segment, shouldMirrorExport);
+          const filename = filenameForSegment(segment, index);
+          zip.file(filename, blob);
+          manifest.push({
+            label: segment.label || defaultLabel(index),
+            filename,
+            start: Number(segment.start.toFixed(3)),
+            end: Number(segment.end.toFixed(3)),
+            startFrame: secondsToFrame(segment.start),
+            endFrame: secondsToFrame(segment.end),
+            editFps: editFps(),
+            mirrored: shouldMirrorExport,
+            duration: Number((segment.end - segment.start).toFixed(3))
+          });
+        }
+        zip.file("annotations.json", JSON.stringify(manifest, null, 2));
+        const zipBlob = await zip.generateAsync({ type: "blob" });
+        download(`${sanitizeName(baseName.value) || "LSF_"}clips.zip`, "application/zip", zipBlob);
+        setModelStatus("Python backend ready", "ready");
+      } catch (error) {
+        console.error(error);
+        setModelStatus("Clip export failed", "error");
+      } finally {
+        exportingClips = false;
+        scanBtn.disabled = !currentVideoName || !video.src;
+        clipsBtn.disabled = !segments.some((segment) => segment.checked !== false);
+        video.currentTime = Math.min(originalTime, video.duration || originalTime);
+        if (!wasPaused) video.play();
+      }
+    }
+
+    async function recordSegment(segment, shouldMirrorExport) {
+      if (!window.MediaRecorder) {
+        throw new Error("MediaRecorder is not available in this browser.");
+      }
+      const canvas = document.createElement("canvas");
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      canvas.width = width;
+      canvas.height = height;
+      const outputCtx = canvas.getContext("2d");
+      const stream = canvas.captureStream(30);
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? "video/webm;codecs=vp9"
+        : "video/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size) chunks.push(event.data);
+      };
+
+      await seekTo(segment.start);
+
+      return new Promise((resolve, reject) => {
+        const stopAt = Math.min(segment.end, video.duration || segment.end);
+        let frameRequest = 0;
+        let timeoutId = 0;
+
+        const drawFrame = () => {
+          outputCtx.clearRect(0, 0, width, height);
+          outputCtx.save();
+          if (shouldMirrorExport) {
+            outputCtx.translate(width, 0);
+            outputCtx.scale(-1, 1);
+          }
+          outputCtx.drawImage(video, 0, 0, width, height);
+          outputCtx.restore();
+          if (video.currentTime >= stopAt || video.ended) {
+            cancelAnimationFrame(frameRequest);
+            clearTimeout(timeoutId);
+            video.pause();
+            if (recorder.state !== "inactive") recorder.stop();
+            return;
+          }
+          frameRequest = requestAnimationFrame(drawFrame);
+        };
+
+        recorder.onerror = () => reject(recorder.error);
+        recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+        timeoutId = setTimeout(() => {
+          cancelAnimationFrame(frameRequest);
+          video.pause();
+          if (recorder.state !== "inactive") recorder.stop();
+        }, Math.max(1000, (stopAt - segment.start + 0.5) * 1200));
+
+        recorder.start();
+        video.play().then(() => {
+          drawFrame();
+        }).catch(reject);
+      });
+    }
+
+    function seekTo(time) {
+      video.currentTime = Math.max(0, Math.min(time, video.duration || time));
+      return waitForSeek();
+    }
+
+    function resetLoadedVideo(infoText) {
+      emptyState.style.display = "none";
+      segments = [];
+      openSegment = null;
+      lastResults = null;
+      lastPlayedIndex = -1;
+      renderSegments();
+      videoInfo.textContent = infoText;
+      scanBtn.disabled = !currentVideoName;
+      clearBtn.disabled = false;
+    }
+
+    function loadWorkspaceVideo(src) {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+      }
+      currentVideoName = src;
+      video.src = src;
+      resetLoadedVideo(src);
+    }
+
+    async function extractKeypoints() {
+      if (!clipFolder.value) return;
+      extractKeypointsBtn.disabled = true;
+      keypointStatus.textContent = "Extracting keypoints...";
+      setModelStatus("Extracting COCO JSON", "ready");
+      try {
+        const response = await fetch("/api/extract-keypoints", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            inputDir: clipFolder.value,
+            outputDir: keypointOutput.value,
+            sampleFps: keypointSampleFps.value,
+            hand: keypointHand.value,
+            handednessMode: handLabelMode.value,
+            interpolateGap: interpolateGap.value,
+            maxJumpPx: maxJumpPx.value
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Extraction failed.");
+        keypointStatus.textContent = `${result.videos} clips -> ${result.outputDir}, ${result.annotations} annotations, ${result.interpolated} interpolated, ${result.smoothed} smoothed, ${result.trackSwitches} track switches.`;
+        setModelStatus("COCO JSON export done", "ready");
+      } catch (error) {
+        keypointStatus.textContent = error.message || "Extraction failed.";
+        setModelStatus("COCO JSON export failed", "error");
+      } finally {
+        extractKeypointsBtn.disabled = !clipFolder.value;
+      }
+    }
+
+    async function initBackend() {
+      try {
+        const [videoResponse, folderResponse] = await Promise.all([
+          fetch("/api/videos"),
+          fetch("/api/clip-dirs")
+        ]);
+        if (!videoResponse.ok || !folderResponse.ok) throw new Error("Backend unavailable");
+        const data = await videoResponse.json();
+        const folders = await folderResponse.json();
+        if (Array.isArray(data.videos) && data.videos.length) {
+          workspaceVideoNames = [...data.videos];
+          workspaceVideos.innerHTML = data.videos.map((name) => (
+            `<button class="workspace-video" data-src="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+          )).join("");
+        } else {
+          workspaceVideoNames = [];
+        }
+        if (Array.isArray(folders.folders) && folders.folders.length) {
+          clipFolder.innerHTML = folders.folders.map((name) => (
+            `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`
+          )).join("");
+          if (folders.folders.includes("Louna_prise1_clips")) clipFolder.value = "Louna_prise1_clips";
+          extractKeypointsBtn.disabled = false;
+          keypointStatus.textContent = `${folders.folders.length} clip folder(s) found.`;
+        } else {
+          clipFolder.innerHTML = "";
+          extractKeypointsBtn.disabled = true;
+          keypointStatus.textContent = "No clip folder found.";
+        }
+        setModelStatus("Python backend ready", "ready");
+      } catch (error) {
+        setModelStatus("Start app.py server", "error");
+      }
+    }
+
+    function loop() {
+      if (!drawing) {
+        drawing = true;
+        detectFrame().finally(() => {
+          drawing = false;
+        });
+      }
+      renderTimeline();
+      requestAnimationFrame(loop);
+    }
+
+    videoFile.addEventListener("change", () => {
+      const file = videoFile.files && videoFile.files[0];
+      if (!file) return;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = URL.createObjectURL(file);
+      video.src = objectUrl;
+      currentVideoName = workspaceVideoNames.includes(file.name) ? file.name : "";
+      resetLoadedVideo(`${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+      if (currentVideoName) {
+        setModelStatus(`Workspace match found: ${currentVideoName}`, "ready");
+      } else {
+        setModelStatus("Use workspace video for Python scan", "error");
+      }
+    });
+
+    segmentsFile.addEventListener("change", () => {
+      const file = segmentsFile.files && segmentsFile.files[0];
+      importSegmentsFile(file);
+    });
+
+    workspaceVideos.addEventListener("click", (event) => {
+      const button = event.target.closest(".workspace-video");
+      if (!button) return;
+      loadWorkspaceVideo(button.dataset.src);
+    });
+
+    video.addEventListener("loadedmetadata", () => {
+      resizeCanvas();
+      videoInfo.textContent += `, ${formatTime(video.duration)} s`;
+      addClipBtn.disabled = false;
+    });
+
+    video.addEventListener("timeupdate", renderTimeline);
+
+    thresholdRange.addEventListener("input", () => {
+      thresholdPercent = Number(thresholdRange.value);
+      drawOverlay();
+    });
+
+    mirrorVideo.addEventListener("change", () => {
+      viewer.classList.toggle("mirrored", mirrorVideo.checked);
+      drawOverlay();
+    });
+
+    handLabelMode.addEventListener("change", () => {
+      openSegment = null;
+      lastActiveTime = 0;
+      drawOverlay();
+    });
+
+    trackedHand.addEventListener("change", () => {
+      openSegment = null;
+      lastActiveTime = 0;
+      drawOverlay();
+    });
+
+    baseName.addEventListener("input", renderSegments);
+    clipPaddingBeforeInput.addEventListener("change", updateSegmentClipBounds);
+    clipPaddingAfterInput.addEventListener("change", updateSegmentClipBounds);
+
+    segmentRows.addEventListener("input", (event) => {
+      const index = Number(event.target.dataset.index);
+      if (!segments[index]) return;
+      if (event.target.matches(".label-input")) {
+        segments[index].label = event.target.value;
+        event.target.title = filenameForSegment(segments[index], index);
+      }
+      if (event.target.matches(".time-input")) {
+        const field = event.target.dataset.field;
+        const value = frameToSeconds(event.target.value);
+        updateSegmentTime(index, field, value, false);
+      }
+    });
+
+    segmentRows.addEventListener("blur", (event) => {
+      if (!event.target.matches(".time-input")) return;
+      const index = Number(event.target.dataset.index);
+      if (!segments[index]) return;
+      event.target.value = secondsToFrame(segments[index][event.target.dataset.field]);
+      renderTimeline();
+    }, true);
+
+    segmentRows.addEventListener("change", (event) => {
+      if (!event.target.matches(".segment-check")) return;
+      const index = Number(event.target.dataset.index);
+      if (!segments[index]) return;
+      segments[index].checked = event.target.checked;
+      renderSegments();
+    });
+
+    function updateSegmentTime(index, field, value, rerender = true) {
+      const segment = segments[index];
+      if (!segment) return;
+      const next = { ...segment, [field]: clampTime(value), manual: segment.manual === true };
+      if (field === "start" && next.start >= next.end) {
+        next.end = clampTime(next.start + frameStepSeconds());
+      }
+      if (field === "end" && next.end <= next.start) {
+        next.start = clampTime(next.end - frameStepSeconds());
+      }
+      if (next.manual) {
+        next.activeStart = next.start;
+        next.activeEnd = next.end;
+      }
+      segments[index] = normalizeSegment(next);
+      if (rerender) renderSegments();
+      else renderTimeline();
+    }
+
+    function playSegment(index) {
+      const segment = segments[index];
+      if (!segment) return;
+      lastPlayedIndex = index;
+      activeState.textContent = String(lastPlayedIndex + 1).padStart(2, "0");
+      segmentRows.querySelectorAll("tr").forEach((row) => row.classList.remove("last-played"));
+      const row = segmentRows.querySelector(`button.play-segment[data-index="${index}"]`)?.closest("tr");
+      if (row) {
+        row.classList.add("last-played");
+        const label = row.querySelector(".label-input");
+        if (label) label.focus();
+      }
+      video.currentTime = segment.start;
+      video.play();
+      const stopAt = segment.end;
+      const stopClip = () => {
+        if (video.currentTime >= stopAt || video.paused) {
+          video.pause();
+          video.removeEventListener("timeupdate", stopClip);
+        }
+      };
+      video.addEventListener("timeupdate", stopClip);
+      renderTimeline();
+    }
+
+    function deleteSegment(index) {
+      if (!segments[index]) return;
+      segments.splice(index, 1);
+      if (lastPlayedIndex === index) lastPlayedIndex = -1;
+      else if (lastPlayedIndex > index) lastPlayedIndex -= 1;
+      renderSegments();
+    }
+
+    function mergeWithNext(index) {
+      const first = segments[index];
+      const second = segments[index + 1];
+      if (!first || !second) return;
+      const merged = normalizeSegment({
+        ...first,
+        label: first.label || defaultLabel(index),
+        checked: first.checked !== false || second.checked !== false,
+        manual: first.manual === true || second.manual === true,
+        activeStart: Math.min(first.activeStart ?? first.start, second.activeStart ?? second.start),
+        activeEnd: Math.max(first.activeEnd ?? first.end, second.activeEnd ?? second.end),
+        start: Math.min(first.start, second.start),
+        end: Math.max(first.end, second.end)
+      });
+      segments.splice(index, 2, merged);
+      lastPlayedIndex = index;
+      renderSegments();
+      setModelStatus(`Merged clip ${String(index + 1).padStart(2, "0")}`, "ready");
+    }
+
+    segmentRows.addEventListener("click", (event) => {
+      const deleteButton = event.target.closest(".delete-segment");
+      if (deleteButton) {
+        deleteSegment(Number(deleteButton.dataset.index));
+        return;
+      }
+      const mergeButton = event.target.closest(".merge-next");
+      if (mergeButton) {
+        mergeWithNext(Number(mergeButton.dataset.index));
+        return;
+      }
+      const stepButton = event.target.closest(".frame-step");
+      if (stepButton) {
+        const index = Number(stepButton.dataset.index);
+        const field = stepButton.dataset.field;
+        const delta = Number(stepButton.dataset.delta) * frameStepSeconds();
+        if (segments[index]) updateSegmentTime(index, field, segments[index][field] + delta, true);
+        return;
+      }
+      const button = event.target.closest(".play-segment");
+      if (!button) return;
+      playSegment(Number(button.dataset.index));
+    });
+
+    overlay.addEventListener("pointerdown", (event) => {
+      overlay.setPointerCapture(event.pointerId);
+      moveThreshold(event);
+    });
+
+    overlay.addEventListener("pointermove", (event) => {
+      if (event.buttons !== 1) return;
+      moveThreshold(event);
+    });
+
+    timelineTrack.addEventListener("click", (event) => {
+      const bar = event.target.closest(".segment-bar");
+      if (bar && bar.dataset.index) {
+        playSegment(Number(bar.dataset.index));
+        return;
+      }
+      if (!video.duration) return;
+      const rect = timelineTrack.getBoundingClientRect();
+      const percent = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      video.currentTime = percent * video.duration;
+    });
+
+    function moveThreshold(event) {
+      const rect = getVideoRect();
+      const canvasRect = overlay.getBoundingClientRect();
+      const y = event.clientY - canvasRect.top;
+      const percent = ((y - rect.y) / rect.height) * 100;
+      thresholdPercent = Math.max(5, Math.min(95, percent));
+      thresholdRange.value = String(Math.round(thresholdPercent));
+      drawOverlay();
+    }
+
+    scanBtn.addEventListener("click", scanVideo);
+    extractKeypointsBtn.addEventListener("click", extractKeypoints);
+    clipFolder.addEventListener("change", () => {
+      if (!keypointOutput.value.trim()) keypointOutput.value = `${clipFolder.value}_coco_keypoints`;
+    });
+    editFrameFpsInput.addEventListener("change", renderSegments);
+    addClipBtn.addEventListener("click", addManualClip);
+    playLastBtn.addEventListener("click", () => playSegment(lastPlayedIndex));
+    checkAllBtn.addEventListener("click", () => {
+      segments = segments.map((segment) => ({ ...segment, checked: true }));
+      renderSegments();
+    });
+    checkNoneBtn.addEventListener("click", () => {
+      segments = segments.map((segment) => ({ ...segment, checked: false }));
+      renderSegments();
+    });
+    clearBtn.addEventListener("click", () => {
+      segments = [];
+      openSegment = null;
+      lastPlayedIndex = -1;
+      renderSegments();
+    });
+    jsonBtn.addEventListener("click", () => exportData("json"));
+    csvBtn.addEventListener("click", () => exportData("csv"));
+    clipsBtn.addEventListener("click", exportSplitVideos);
+    window.addEventListener("resize", resizeCanvas);
+
+    initBackend();
+    resizeCanvas();
+    loop();
+  </script>
+</body>
+</html>
