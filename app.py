@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from extract_clip_keypoints import (
     assign_hand_tracks,
+    annotation_matches_filters,
     bbox_from_keypoints,
     clip_to_coco,
     detect_frame,
@@ -76,6 +77,8 @@ def scan_video(
     video_path: Path,
     threshold_percent: float,
     tracked_hand: str,
+    target_side: str,
+    mirror_video: bool,
     handedness_mode: str,
     min_landmarks: int,
     min_duration: float,
@@ -177,7 +180,7 @@ def scan_video(
         time_s = sampled["time"]
         above = 0
         for annotation in annotations_by_image.get(sampled["image_id"], []):
-            if tracked_hand != "Both" and annotation.get("handedness") != tracked_hand:
+            if not annotation_matches_filters(annotation, tracked_hand, target_side, width, mirror_video):
                 continue
             keypoints = annotation["keypoints"]
             above += sum(1 for index in range(1, len(keypoints), 3) if keypoints[index] < threshold_y_px)
@@ -248,17 +251,22 @@ def scan():
         tracked_hand = data.get("trackedHand", "Right")
         if tracked_hand not in {"Right", "Left", "Both"}:
             raise ValueError("Invalid hand filter.")
+        target_side = data.get("targetSide", "any")
+        if target_side not in {"any", "left", "right"}:
+            raise ValueError("Invalid target side.")
         result = scan_video(
             video_path=video_path,
             threshold_percent=clamp(float(data.get("thresholdPercent", 62)), 5, 95),
             tracked_hand=tracked_hand,
+            target_side=target_side,
+            mirror_video=bool(data.get("mirrorVideo", False)),
             handedness_mode=handedness_mode,
-            min_landmarks=max(1, int(data.get("minLandmarks", 2))),
+            min_landmarks=max(1, int(data.get("minLandmarks", 3))),
             min_duration=max(0.05, float(data.get("minDuration", 0.2))),
-            rest_gap=max(0.05, float(data.get("restGap", 0.25))),
-            padding_before=max(0.0, float(data.get("paddingBefore", 0.2))),
-            padding_after=max(0.0, float(data.get("paddingAfter", 0.3))),
-            sample_fps=clamp(float(data.get("sampleFps", 15)), 3, 30),
+            rest_gap=max(0.05, float(data.get("restGap", 0.35))),
+            padding_before=max(0.0, float(data.get("paddingBefore", 0.4))),
+            padding_after=max(0.0, float(data.get("paddingAfter", 0.6))),
+            sample_fps=clamp(float(data.get("sampleFps", 20)), 3, 30),
         )
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
@@ -280,6 +288,9 @@ def extract_keypoints():
         hand = data.get("hand", "Both")
         if hand not in {"Right", "Left", "Both"}:
             raise ValueError("Invalid hand filter.")
+        side_filter = data.get("sideFilter", "any")
+        if side_filter not in {"any", "left", "right"}:
+            raise ValueError("Invalid side filter.")
         handedness_mode = data.get("handednessMode", "mediapipe")
         if handedness_mode not in {"mediapipe", "swap"}:
             raise ValueError("Invalid handedness mode.")
@@ -307,6 +318,7 @@ def extract_keypoints():
                         interpolate_gap,
                         max_jump_px,
                         handedness_mode,
+                        side_filter,
                     )
                 )
 

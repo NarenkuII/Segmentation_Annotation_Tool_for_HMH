@@ -601,8 +601,16 @@
               </select>
             </div>
             <div class="field">
+              <label for="targetSide">Target side</label>
+              <select id="targetSide">
+                <option value="left" selected>Left side</option>
+                <option value="right">Right side</option>
+                <option value="any">Any side</option>
+              </select>
+            </div>
+            <div class="field">
               <label for="minLandmarks">Minimum landmarks above line</label>
-              <input id="minLandmarks" type="number" min="1" max="42" value="2">
+              <input id="minLandmarks" type="number" min="1" max="42" value="3">
             </div>
             <div class="field">
               <label for="minDuration">Minimum sign duration, seconds</label>
@@ -610,19 +618,19 @@
             </div>
             <div class="field">
               <label for="restGap">Rest gap to close sign, seconds</label>
-              <input id="restGap" type="number" min="0.05" max="3" step="0.05" value="0.25">
+              <input id="restGap" type="number" min="0.05" max="3" step="0.05" value="0.35">
             </div>
             <div class="field">
               <label for="clipPaddingBefore">Clip padding before sign, seconds</label>
-              <input id="clipPaddingBefore" type="number" min="0" max="3" step="0.05" value="0.20">
+              <input id="clipPaddingBefore" type="number" min="0" max="3" step="0.05" value="0.40">
             </div>
             <div class="field">
               <label for="clipPaddingAfter">Clip padding after sign, seconds</label>
-              <input id="clipPaddingAfter" type="number" min="0" max="3" step="0.05" value="0.30">
+              <input id="clipPaddingAfter" type="number" min="0" max="3" step="0.05" value="0.60">
             </div>
             <div class="field">
               <label for="sampleFps">Python scan FPS</label>
-              <input id="sampleFps" type="number" min="3" max="30" step="1" value="15">
+              <input id="sampleFps" type="number" min="3" max="30" step="1" value="20">
             </div>
             <div class="field">
               <label for="editFrameFps">Manual edit FPS</label>
@@ -650,9 +658,17 @@
               <div class="field">
                 <label for="keypointHand">Hand</label>
                 <select id="keypointHand">
-                  <option value="Both" selected>Both</option>
-                  <option value="Right">Right</option>
+                  <option value="Right" selected>Right</option>
                   <option value="Left">Left</option>
+                  <option value="Both">Both</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="keypointSide">Side</label>
+                <select id="keypointSide">
+                  <option value="left" selected>Left</option>
+                  <option value="right">Right</option>
+                  <option value="any">Any</option>
                 </select>
               </div>
             </div>
@@ -737,6 +753,7 @@
     const keypointOutput = document.getElementById("keypointOutput");
     const keypointSampleFps = document.getElementById("keypointSampleFps");
     const keypointHand = document.getElementById("keypointHand");
+    const keypointSide = document.getElementById("keypointSide");
     const interpolateGap = document.getElementById("interpolateGap");
     const maxJumpPx = document.getElementById("maxJumpPx");
     const extractKeypointsBtn = document.getElementById("extractKeypointsBtn");
@@ -747,6 +764,7 @@
     const mirrorVideo = document.getElementById("mirrorVideo");
     const handLabelMode = document.getElementById("handLabelMode");
     const trackedHand = document.getElementById("trackedHand");
+    const targetSide = document.getElementById("targetSide");
     const minLandmarksInput = document.getElementById("minLandmarks");
     const minDurationInput = document.getElementById("minDuration");
     const restGapInput = document.getElementById("restGap");
@@ -992,23 +1010,36 @@
       return label;
     }
 
-    function getTrackedHands(results) {
+    function handScreenSide(landmarks, rect) {
+      if (!landmarks || !landmarks.length) return "unknown";
+      const centerX = landmarks.reduce((total, landmark) => total + landmarkToPoint(landmark, rect).x, 0) / landmarks.length;
+      return centerX < rect.x + rect.width / 2 ? "left" : "right";
+    }
+
+    function getDetectedHands(results, rect = getVideoRect()) {
       if (!results || !results.multiHandLandmarks) return [];
       const mode = trackedHand.value;
+      const sideMode = targetSide.value;
       return results.multiHandLandmarks
         .map((landmarks, index) => {
           const handedness = results.multiHandedness && results.multiHandedness[index];
-          const label = normalizeHandLabel(handedness && handedness.label ? handedness.label : "");
-          return { landmarks, label };
-        })
-        .filter((hand) => mode === "Both" || hand.label === mode);
+          const rawLabel = handedness && handedness.label ? handedness.label : "";
+          const label = normalizeHandLabel(rawLabel);
+          const side = handScreenSide(landmarks, rect);
+          const selected = (mode === "Both" || label === mode) && (sideMode === "any" || side === sideMode);
+          return { landmarks, rawLabel, label, side, selected };
+        });
+    }
+
+    function getTrackedHands(results, rect = getVideoRect()) {
+      return getDetectedHands(results, rect).filter((hand) => hand.selected);
     }
 
     function countAboveThreshold(results) {
       const rect = getVideoRect();
       thresholdY = rect.y + rect.height * (thresholdPercent / 100);
       let count = 0;
-      getTrackedHands(results).forEach((hand) => {
+      getTrackedHands(results, rect).forEach((hand) => {
         hand.landmarks.forEach((landmark) => {
           if (landmarkToPoint(landmark, rect).y < thresholdY) count += 1;
         });
@@ -1063,11 +1094,14 @@
     }
 
     function drawHands(results, rect) {
-      getTrackedHands(results).forEach((hand) => {
+      getDetectedHands(results, rect).forEach((hand) => {
         const landmarks = hand.landmarks;
+        const wrist = landmarkToPoint(landmarks[0], rect);
+        const labelText = `${hand.label || "?"} / ${hand.side}${hand.rawLabel && hand.rawLabel !== hand.label ? ` (raw ${hand.rawLabel})` : ""}`;
         ctx.save();
-        ctx.strokeStyle = "#22c55e";
-        ctx.lineWidth = 3;
+        ctx.globalAlpha = hand.selected ? 1 : 0.35;
+        ctx.strokeStyle = hand.selected ? "#22c55e" : "#94a3b8";
+        ctx.lineWidth = hand.selected ? 3 : 2;
         window.HAND_CONNECTIONS.forEach(([start, end]) => {
           const a = landmarkToPoint(landmarks[start], rect);
           const b = landmarkToPoint(landmarks[end], rect);
@@ -1081,9 +1115,19 @@
           const mapped = landmarkToPoint(point, rect);
           ctx.beginPath();
           ctx.arc(mapped.x, mapped.y, 4, 0, Math.PI * 2);
-          ctx.fillStyle = mapped.y < thresholdY ? "#f97316" : "#38bdf8";
+          ctx.fillStyle = hand.selected && mapped.y < thresholdY ? "#f97316" : hand.selected ? "#38bdf8" : "#94a3b8";
           ctx.fill();
         });
+        ctx.save();
+        ctx.font = "700 12px Arial, Helvetica, sans-serif";
+        const textWidth = ctx.measureText(labelText).width;
+        const badgeX = Math.max(rect.x, Math.min(rect.x + rect.width - textWidth - 18, wrist.x - 8));
+        const badgeY = Math.max(rect.y + 6, wrist.y - 34);
+        ctx.fillStyle = hand.selected ? "rgba(34, 197, 94, 0.92)" : "rgba(15, 23, 42, 0.72)";
+        ctx.fillRect(badgeX, badgeY, textWidth + 18, 24);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(labelText, badgeX + 9, badgeY + 16);
+        ctx.restore();
       });
     }
 
@@ -1193,13 +1237,15 @@
             video: currentVideoName,
             thresholdPercent,
             trackedHand: trackedHand.value,
+            targetSide: targetSide.value,
+            mirrorVideo: mirrorVideo.checked,
             handednessMode: handLabelMode.value,
             minLandmarks: config.minLandmarks,
             minDuration: config.minDuration,
             restGap: config.restGap,
             paddingBefore: config.paddingBefore,
             paddingAfter: config.paddingAfter,
-            sampleFps: Number(sampleFpsInput.value) || 15
+            sampleFps: Number(sampleFpsInput.value) || 20
           })
         });
         const result = await response.json();
@@ -1446,6 +1492,7 @@
             outputDir: keypointOutput.value,
             sampleFps: keypointSampleFps.value,
             hand: keypointHand.value,
+            sideFilter: keypointSide.value,
             handednessMode: handLabelMode.value,
             interpolateGap: interpolateGap.value,
             maxJumpPx: maxJumpPx.value
@@ -1554,6 +1601,12 @@
     });
 
     handLabelMode.addEventListener("change", () => {
+      openSegment = null;
+      lastActiveTime = 0;
+      drawOverlay();
+    });
+
+    targetSide.addEventListener("change", () => {
       openSegment = null;
       lastActiveTime = 0;
       drawOverlay();

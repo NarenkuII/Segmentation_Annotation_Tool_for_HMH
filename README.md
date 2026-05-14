@@ -27,12 +27,16 @@ Sur Windows, tu peux aussi lancer `run_tool.bat`.
 
 MediaPipe tourne en mode `VIDEO`, donc il utilise le timestamp des frames au lieu de traiter chaque frame comme une photo independante. L'export JSON stabilise aussi les mains avec un `track_id` temporel. Le lissage et l'interpolation travaillent par piste, pas seulement par label `Left`/`Right`, ce qui reduit les inversions et les sauts d'une frame.
 
+L'overlay affiche maintenant le label corrige de chaque main (`Right`/`Left`), le label brut MediaPipe quand il differe, et le cote de l'ecran (`left`/`right`). Les mains retenues par les filtres sont colorees, les autres restent grisees.
+
+Pour normaliser le dataset sur la main droite du signeur visible a gauche de l'ecran, garde `Tracked hand -> Right only` et `Target side -> Left side`. Pour l'export JSON, garde `Hand -> Right` et `Side -> Left`.
+
 Si la video vient d'une camera non miroir et que MediaPipe inverse gauche/droite, utilise `Hand labels -> Swap Left/Right` avant le scan ou l'export.
 
 ## CLI
 
 ```powershell
-python extract_clip_keypoints.py .\mon_dossier_clips --hand Both --sample-fps 10 --interpolate-gap 2 --max-jump-px 120
+python extract_clip_keypoints.py .\mon_dossier_clips --hand Right --side left --sample-fps 10 --interpolate-gap 2 --max-jump-px 120
 ```
 
 Pour inverser les labels gauche/droite :

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent
 HAND_MODEL = ROOT / "hand_landmarker.task"
 VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
 HAND_LABELS = {"Left", "Right"}
+SIDE_FILTERS = {"any", "left", "right"}
 
 HAND_KEYPOINTS = [
     "wrist",
@@ -100,6 +101,30 @@ def bbox_from_keypoints(points: list[tuple[float, float]], width: int, height: i
 
 def keypoints_to_xy(keypoints: list[float]) -> list[tuple[float, float]]:
     return [(keypoints[index], keypoints[index + 1]) for index in range(0, len(keypoints), 3)]
+
+
+def keypoints_screen_side(keypoints: list[float], width: int, mirror: bool = False) -> str:
+    if not keypoints or width <= 0:
+        return "unknown"
+    xs = [keypoints[index] for index in range(0, len(keypoints), 3)]
+    center_x = sum(xs) / len(xs)
+    if mirror:
+        center_x = width - center_x
+    return "left" if center_x < width / 2 else "right"
+
+
+def annotation_matches_filters(
+    annotation: dict,
+    hand_filter: str,
+    side_filter: str,
+    width: int,
+    mirror: bool = False,
+) -> bool:
+    if hand_filter != "Both" and annotation.get("handedness") != hand_filter:
+        return False
+    if side_filter != "any" and keypoints_screen_side(annotation.get("keypoints", []), width, mirror) != side_filter:
+        return False
+    return True
 
 
 def swap_handedness(label: str) -> str:
@@ -398,6 +423,7 @@ def clip_to_coco(
     interpolate_gap: int,
     max_jump_px: float,
     handedness_mode: str = "mediapipe",
+    side_filter: str = "any",
 ) -> dict:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -430,6 +456,7 @@ def clip_to_coco(
             "interpolate_gap": interpolate_gap,
             "max_jump_px": max_jump_px,
             "handedness_mode": handedness_mode,
+            "side_filter": side_filter,
             "mediapipe_running_mode": "VIDEO",
         },
         "licenses": [],
@@ -522,7 +549,7 @@ def clip_to_coco(
         tracked_annotations,
         key=lambda item: (item["image_id"], item.get("track_id") or 0, item.get("handedness") or ""),
     ):
-        if hand_filter != "Both" and annotation.get("handedness") != hand_filter:
+        if not annotation_matches_filters(annotation, hand_filter, side_filter, width):
             continue
         annotation["id"] = annotation_id
         coco["annotations"].append(annotation)
@@ -589,6 +616,12 @@ def parse_args() -> argparse.Namespace:
         default="mediapipe",
         help="Use MediaPipe labels as-is, or swap Left/Right for non-mirrored camera videos. Default: mediapipe.",
     )
+    parser.add_argument(
+        "--side",
+        choices=sorted(SIDE_FILTERS),
+        default="any",
+        help="Optional screen-side filter after tracking. Use left/right to keep only one side of the video.",
+    )
     return parser.parse_args()
 
 
@@ -609,6 +642,7 @@ def main() -> int:
     print(f"Output: {output_dir}")
     print(f"Videos: {len(videos)}")
     print(f"Hand filter: {args.hand}")
+    print(f"Side filter: {args.side}")
     print(f"Handedness mode: {args.handedness_mode}")
     print(f"Sample FPS: {args.sample_fps or 'all frames'}")
 
@@ -627,6 +661,7 @@ def main() -> int:
                 max(0, args.interpolate_gap),
                 max(0.0, args.max_jump_px),
                 args.handedness_mode,
+                args.side,
             )
             summaries.append(summary)
             print(
