@@ -5,13 +5,14 @@ import urllib.request
 from pathlib import Path
 
 import cv2
-import mediapipe as mp
 from flask import Flask, jsonify, request, send_from_directory
 
 from extract_clip_keypoints import (
     assign_hand_tracks,
     bbox_from_keypoints,
     clip_to_coco,
+    detect_frame,
+    frame_timestamp_ms,
     iter_videos,
     make_landmarker,
     normalize_handedness,
@@ -101,16 +102,9 @@ def scan_video(
     sampled_frames: list[dict] = []
     detections_by_frame: list[list[dict]] = []
 
-    options = mp.tasks.vision.HandLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path=str(ensure_hand_model())),
-        running_mode=mp.tasks.vision.RunningMode.IMAGE,
-        num_hands=2,
-        min_hand_detection_confidence=0.55,
-        min_hand_presence_confidence=0.55,
-    )
-
     try:
-        hands_model = mp.tasks.vision.HandLandmarker.create_from_options(options)
+        ensure_hand_model()
+        hands_model = make_landmarker("video")
         frame_index = 0
         while True:
             ok, frame = cap.read()
@@ -122,9 +116,7 @@ def scan_video(
                 continue
 
             time_s = frame_index / fps
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            result = hands_model.detect(image)
+            result = detect_frame(hands_model, frame, frame_timestamp_ms(frame_index, fps))
 
             image_id = len(sampled_frames) + 1
             sampled_frames.append({"image_id": image_id, "time": time_s})
@@ -301,10 +293,10 @@ def extract_keypoints():
 
         ensure_hand_model()
         summaries = []
-        with make_landmarker() as landmarker:
-            for video_path in videos_found:
-                relative = video_path.relative_to(input_dir)
-                output_path = output_dir / relative.parent / f"{safe_stem(relative.name)}.json"
+        for video_path in videos_found:
+            relative = video_path.relative_to(input_dir)
+            output_path = output_dir / relative.parent / f"{safe_stem(relative.name)}.json"
+            with make_landmarker("video") as landmarker:
                 summaries.append(
                     clip_to_coco(
                         video_path,

@@ -25,7 +25,7 @@ Sur Windows, tu peux aussi lancer `run_tool.bat`.
 
 ## Tracking des mains
 
-L'export JSON stabilise maintenant les mains avec un `track_id` temporel. Le lissage et l'interpolation travaillent par piste, pas seulement par label `Left`/`Right`, ce qui reduit les inversions et les sauts d'une frame.
+MediaPipe tourne en mode `VIDEO`, donc il utilise le timestamp des frames au lieu de traiter chaque frame comme une photo independante. L'export JSON stabilise aussi les mains avec un `track_id` temporel. Le lissage et l'interpolation travaillent par piste, pas seulement par label `Left`/`Right`, ce qui reduit les inversions et les sauts d'une frame.
 
 Si la video vient d'une camera non miroir et que MediaPipe inverse gauche/droite, utilise `Hand labels -> Swap Left/Right` avant le scan ou l'export.
 

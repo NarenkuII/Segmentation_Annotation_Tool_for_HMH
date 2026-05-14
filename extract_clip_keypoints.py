@@ -355,14 +355,21 @@ def smooth_fast_jumps(coco: dict, max_jump_px: float) -> int:
     return smoothed_points
 
 
-def make_landmarker():
+def make_landmarker(running_mode: str = "video"):
     if not HAND_MODEL.exists():
         raise FileNotFoundError(
             f"Missing {HAND_MODEL.name}. Run app.py once or keep hand_landmarker.task in this folder."
         )
+    mode = running_mode.lower()
+    if mode == "image":
+        mp_running_mode = mp.tasks.vision.RunningMode.IMAGE
+    elif mode == "video":
+        mp_running_mode = mp.tasks.vision.RunningMode.VIDEO
+    else:
+        raise ValueError("running_mode must be 'image' or 'video'.")
     options = mp.tasks.vision.HandLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=str(HAND_MODEL)),
-        running_mode=mp.tasks.vision.RunningMode.IMAGE,
+        running_mode=mp_running_mode,
         num_hands=2,
         min_hand_detection_confidence=0.55,
         min_hand_presence_confidence=0.55,
@@ -370,10 +377,16 @@ def make_landmarker():
     return mp.tasks.vision.HandLandmarker.create_from_options(options)
 
 
-def detect_frame(landmarker, frame):
+def frame_timestamp_ms(frame_index: int, fps: float) -> int:
+    return int(round((frame_index / fps) * 1000.0)) if fps > 0 else frame_index
+
+
+def detect_frame(landmarker, frame, timestamp_ms: int | None = None):
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    return landmarker.detect(image)
+    if timestamp_ms is None:
+        return landmarker.detect(image)
+    return landmarker.detect_for_video(image, timestamp_ms)
 
 
 def clip_to_coco(
@@ -417,6 +430,7 @@ def clip_to_coco(
             "interpolate_gap": interpolate_gap,
             "max_jump_px": max_jump_px,
             "handedness_mode": handedness_mode,
+            "mediapipe_running_mode": "VIDEO",
         },
         "licenses": [],
         "images": [],
@@ -456,7 +470,7 @@ def clip_to_coco(
         )
 
         frame_detections = []
-        result = detect_frame(landmarker, frame)
+        result = detect_frame(landmarker, frame, frame_timestamp_ms(frame_index, fps))
         if result.hand_landmarks:
             for hand_index, landmarks in enumerate(result.hand_landmarks):
                 raw_handedness = ""
@@ -599,11 +613,11 @@ def main() -> int:
     print(f"Sample FPS: {args.sample_fps or 'all frames'}")
 
     summaries = []
-    with make_landmarker() as landmarker:
-        for video_path in videos:
-            relative = video_path.relative_to(input_dir)
-            json_name = f"{safe_stem(relative.name)}.json"
-            output_path = output_dir / relative.parent / json_name
+    for video_path in videos:
+        relative = video_path.relative_to(input_dir)
+        json_name = f"{safe_stem(relative.name)}.json"
+        output_path = output_dir / relative.parent / json_name
+        with make_landmarker("video") as landmarker:
             summary = clip_to_coco(
                 video_path,
                 output_path,

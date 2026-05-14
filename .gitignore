@@ -10,7 +10,7 @@ done/
 *_clips/
 *_coco_keypoints/
 *_skeleton_videos/
-_tmp_tracking_test/
+_tmp_tracking_test*/
 
 # Large local media files.
 *.mp4
