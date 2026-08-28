@@ -1,66 +1,54 @@
-# Segmentation Annotation Tool for HMH
+# Sign Language Segmentation & Annotation Tool
 
-Outil local pour segmenter une grande video de langue des signes en clips, puis exporter les keypoints de mains MediaPipe en JSON COCO-style.
+A lightweight web application for segmenting continuous French Sign Language (LSF) videos into signed clips and exporting stabilized MediaPipe hand keypoints in COCO-style JSON format.
 
-## Installation
+## Annotation Workflow
 
-```powershell
+```text
+Video Upload -> Automatic Motion Scan -> Manual Boundary Correction -> Clip Splitting -> Stabilized Keypoint Export
+```
+
+## Features
+
+- **Temporal Tracking & Smoothing**: Uses MediaPipe in `VIDEO` mode with temporal `track_id` association to minimize hand label swapping (left vs. right).
+- **Interactive Web Interface**: Rapid verification, trimming, and splitting of long sign videos.
+- **Batch Keypoint Extraction**: Exports tracked landmarks with configurable interpolation and confidence filtering.
+- **Self-Hostable**: Deployable behind a reverse proxy (e.g., Nginx + Basic Authentication).
+
+## Installation & Running
+
+```bash
+git clone https://github.com/NarenkuII/Segmentation_Annotation_Tool_for_HMH.git
+cd Segmentation_Annotation_Tool_for_HMH
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate  # On Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python app.py
 ```
 
-Ouvre ensuite `http://127.0.0.1:8000`.
+Access the web interface at `http://127.0.0.1:8000`.
 
-Sur le reseau configure avec nginx, l'adresse publique est :
+## Hand Tracking & Stabilization
 
-```text
-http://hmh-segmentation.duckdns.org
-```
+MediaPipe runs in video stream mode, leveraging sequential frame timestamps. The JSON export pipeline stabilizes hand detection through a temporal tracking mechanism (`track_id`). Filtering and linear interpolation operate on active tracks rather than single-frame labels, preventing rapid left/right classification jitter.
 
-Sur Windows, tu peux aussi lancer `run_tool.bat`.
+- **Dominant hand normalization**: Select `Tracked hand -> Right only` and `Target side -> Left side` to target signer perspective.
+- **Camera parity correction**: Use `Hand labels -> Swap Left/Right` when working with mirrored or non-mirrored recordings.
 
-## Workflow
+## CLI Usage
 
-1. Ouvre l'app, choisis une video, puis attends l'upload serveur.
-2. Lance le scan.
-3. Corrige les segments si besoin.
-4. Exporte les clips. Les clips sont crees sur le PC qui lance Flask, dans `workspace/clips/`.
-5. Lance `Extract COCO JSON`. Les JSON sont crees dans `workspace/keypoints/` et un lien ZIP est affiche.
-
-Les videos uploadees, clips generes et JSON generes restent dans `workspace/`, qui est ignore par Git.
-
-## Tracking des mains
-
-MediaPipe tourne en mode `VIDEO`, donc il utilise le timestamp des frames au lieu de traiter chaque frame comme une photo independante. L'export JSON stabilise aussi les mains avec un `track_id` temporel. Le lissage et l'interpolation travaillent par piste, pas seulement par label `Left`/`Right`, ce qui reduit les inversions et les sauts d'une frame.
-
-L'overlay affiche maintenant le label corrige de chaque main (`Right`/`Left`), le label brut MediaPipe quand il differe, et le cote de l'ecran (`left`/`right`). Les mains retenues par les filtres sont colorees, les autres restent grisees.
-
-Pour normaliser le dataset sur la main droite du signeur visible a gauche de l'ecran, garde `Tracked hand -> Right only` et `Target side -> Left side`. Pour l'export JSON, garde `Hand -> Right` et `Side -> Left`.
-
-Si la video vient d'une camera non miroir et que MediaPipe inverse gauche/droite, utilise `Hand labels -> Swap Left/Right` avant le scan ou l'export.
-
-## CLI
-
-```powershell
-python extract_clip_keypoints.py .\mon_dossier_clips --hand Right --side left --sample-fps 10 --interpolate-gap 2 --max-jump-px 120
-```
-
-Pour inverser les labels gauche/droite :
-
-```powershell
-python extract_clip_keypoints.py .\mon_dossier_clips --hand Both --handedness-mode swap
-```
-
-## Mise en ligne
-
-Le serveur Flask garde le calcul sur la machine qui lance `app.py`. Pour exposer l'outil a un ami, mets Flask derriere nginx avec une authentification HTTP basic et laisse Flask ecouter en local sur `127.0.0.1:8000`.
-
-Dans la configuration actuelle, nginx tourne sur `192.168.1.16` et proxifie vers le serveur Flask sur `192.168.1.37:8000`. L'authentification HTTP basic est active sur `hmh-segmentation.duckdns.org`.
-
-Le certificat HTTPS Let's Encrypt doit etre relance quand DuckDNS repond correctement aux requetes CAA :
+Extract keypoints from existing video clips directly via CLI:
 
 ```bash
-sudo certbot certonly --webroot -w /var/www/html -d hmh-segmentation.duckdns.org
+python extract_clip_keypoints.py ./clips_folder --hand Right --side left --sample-fps 10 --interpolate-gap 2 --max-jump-px 120
 ```
+
+With swapped left/right handedness labels:
+
+```bash
+python extract_clip_keypoints.py ./clips_folder --hand Both --handedness-mode swap
+```
+
+## Reverse Proxy Deployment
+
+To expose the tool remotely, place the Flask instance behind Nginx with HTTP Basic Authentication while binding Flask to `127.0.0.1:8000`.
